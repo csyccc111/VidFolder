@@ -108,4 +108,4 @@ npm run dist:zip
 
 ## 开发背景
 
-初始需求和范围说明见 [VIDEO_BROWSER_PROMPT.md](./VIDEO_BROWSER_PROMPT.md)。
+初始需求和范围说明(ai提示词)见 [VIDEO_BROWSER_PROMPT.md](./VIDEO_BROWSER_PROMPT.md)。
