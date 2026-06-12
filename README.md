@@ -1,28 +1,38 @@
-# 视频文件浏览器
+# Vid Folder Browser / 视频文件浏览器
 
 一个轻量级桌面应用，用于选择本地文件夹后递归浏览其中的视频文件，并展示封面、文件名、大小、时长、修改时间和基础详情。
 
-## 当前功能
+它的定位是“带封面预览的视频文件夹浏览器”：不是播放器，也不是复杂素材管理器。
 
-- Electron + React + TypeScript + Vite 项目结构
-- 选择文件夹并记住上次路径
+## 功能
+
+- 选择本地文件夹，并记住上次选择的路径
 - 递归扫描 `.mp4`、`.mkv`、`.avi`、`.mov`、`.wmv`、`.flv`、`.webm`、`.m4v`
-- 扫描过程增量推送结果，不等待全部完成
-- 使用 `ffprobe` 读取时长、分辨率
+- 扫描过程增量显示结果，不必等待全部扫描完成
+- 使用 `ffprobe` 读取视频时长、分辨率
 - 使用 `ffmpeg` 生成 16:9 缩略图，并缓存在应用数据目录
-- JSON 缓存基于文件路径、大小和修改时间失效
-- 搜索、排序、升降序、缩略图小/中/大切换
-- 右键菜单：打开所在目录、默认播放器打开、复制完整路径、重新生成封面
-- 右侧详情面板和底部状态栏
+- 基于文件路径、大小和修改时间判断缓存是否失效
+- 支持搜索、排序、升降序切换、缩略图小/中/大切换
+- 支持右键菜单：打开所在目录、用默认播放器打开、复制完整路径、重新生成封面
+- 提供右侧详情面板和底部状态栏
+
+## 下载使用
+
+发布版会放在 GitHub Releases 页面：
+
+https://github.com/csyccc111/VidFolder/releases
+
+下载 `Vid Folder Browser-*-win-x64.zip` 后解压，运行其中的 `Vid Folder Browser.exe`。
+
+当前版本依赖本机已安装的 `ffmpeg` 和 `ffprobe`。请确保它们可以在系统 `PATH` 中直接执行。
 
 ## 运行要求
 
-需要本机安装：
+开发或从源码运行需要：
 
 - Node.js 和 npm
-- ffmpeg 和 ffprobe，并确保它们在系统 `PATH` 中可执行
-
-后续打包时可以把 ffmpeg/ffprobe 一起随应用分发，当前开发版先读取系统 PATH。
+- ffmpeg 和 ffprobe
+- Windows 系统，当前打包目标为 Windows x64 zip
 
 ## 开发运行
 
@@ -31,13 +41,52 @@ npm install
 npm run dev
 ```
 
+如果在 PowerShell 中遇到 `npm.ps1` 执行策略限制，可以改用：
+
+```bash
+npm.cmd run dev
+```
+
 ## 构建
+
+生成前端和 Electron 主进程构建产物：
 
 ```bash
 npm run build
 ```
 
-这个命令会生成前端 `dist/` 和 Electron 主进程 `dist-electron/`。安装包制作后续再接入 electron-builder 或 Forge。
+生成 Windows zip 发布包：
+
+```bash
+npm run dist:zip
+```
+
+构建产物会生成到：
+
+- `dist/`：前端构建结果
+- `dist-electron/`：Electron 主进程构建结果
+- `release/`：electron-builder 生成的发布包
+
+这些目录是构建产物，不提交到源码仓库。
+
+## 发布 Release
+
+1. 确认 `package.json` 中的 `version` 是要发布的版本。
+2. 运行：
+
+   ```bash
+   npm run dist:zip
+   ```
+
+3. 打开 GitHub Releases 页面：
+
+   https://github.com/csyccc111/VidFolder/releases
+
+4. 创建新 Release，Tag 建议使用 `v版本号`，例如 `v0.1.0`。
+5. 上传 `release/` 目录中的 zip 文件。
+6. 发布 Release。
+
+源码仓库只保存代码、配置和文档；安装包、zip、exe 等大文件通过 GitHub Releases 分发。
 
 ## 缓存位置
 
@@ -47,6 +96,16 @@ npm run build
 - `metadata-cache.json`：视频元信息和缩略图状态
 - `settings.json`：上次选择的文件夹
 
-## 说明
+## 非目标功能
 
-这不是播放器，也不是素材管理器。当前版本刻意不包含删除、移动、重命名、标签、收藏、内置播放等功能。
+当前版本刻意不包含以下功能：
+
+- 内置视频播放器
+- 删除、移动、重命名视频
+- 标签、收藏、评论
+- 批量管理或复杂素材库功能
+- 云同步或登录系统
+
+## 开发背景
+
+初始需求和范围说明见 [VIDEO_BROWSER_PROMPT.md](./VIDEO_BROWSER_PROMPT.md)。
