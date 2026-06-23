@@ -3,5 +3,6 @@ dist
 dist-electron
 release
 *.tsbuildinfo
+PROJECT_MEMORY.md
 *.log
 .DS_Store

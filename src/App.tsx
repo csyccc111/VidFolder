@@ -3,6 +3,9 @@ import type { ContextAction, ScanProgress, VideoItem } from "./shared";
 
 type SortKey = "fileName" | "modifiedAt" | "size" | "duration";
 type ThumbSize = "small" | "medium" | "large";
+type ViewMode = "grid" | "list";
+type DurationFilter = "all" | "short" | "medium" | "long";
+type ResolutionFilter = "all" | "landscape" | "portrait" | "square" | "hd" | "fhd" | "uhd";
 
 const emptyProgress: ScanProgress = {
   state: "idle",
@@ -17,6 +20,23 @@ const sortLabels: Record<SortKey, string> = {
   modifiedAt: "修改时间",
   size: "文件大小",
   duration: "时长"
+};
+
+const durationLabels: Record<DurationFilter, string> = {
+  all: "全部时长",
+  short: "1 分钟内",
+  medium: "1-20 分钟",
+  long: "20 分钟以上"
+};
+
+const resolutionLabels: Record<ResolutionFilter, string> = {
+  all: "全部画面",
+  landscape: "横屏",
+  portrait: "竖屏",
+  square: "方形",
+  hd: "720p+",
+  fhd: "1080p+",
+  uhd: "4K+"
 };
 
 function formatBytes(bytes: number) {
@@ -51,6 +71,52 @@ function compareItems(a: VideoItem, b: VideoItem, key: SortKey) {
   return (a[key] ?? 0) - (b[key] ?? 0);
 }
 
+function normalizePath(value: string) {
+  return value.replaceAll("\\", "/").replace(/\/+$/, "").toLocaleLowerCase();
+}
+
+function getRelativeDirectory(rootPath: string, directory: string) {
+  const normalizedRoot = normalizePath(rootPath);
+  const normalizedDirectory = normalizePath(directory);
+  if (!normalizedRoot || normalizedDirectory === normalizedRoot) return ".";
+  if (normalizedDirectory.startsWith(`${normalizedRoot}/`)) {
+    return directory.slice(rootPath.replace(/[/\\]+$/, "").length + 1).replaceAll("\\", "/");
+  }
+  return directory.replaceAll("\\", "/");
+}
+
+function getDirectoryName(relativePath: string) {
+  if (relativePath === ".") return "全部视频";
+  const parts = relativePath.split("/").filter(Boolean);
+  return parts.at(-1) ?? relativePath;
+}
+
+function isWithinDirectory(itemDirectory: string, selectedDirectory: string) {
+  if (!selectedDirectory) return true;
+  const itemPath = normalizePath(itemDirectory);
+  const selectedPath = normalizePath(selectedDirectory);
+  return itemPath === selectedPath || itemPath.startsWith(`${selectedPath}/`);
+}
+
+function matchesDurationFilter(duration: number | undefined, filter: DurationFilter) {
+  if (filter === "all") return true;
+  if (!duration || !Number.isFinite(duration)) return false;
+  if (filter === "short") return duration < 60;
+  if (filter === "medium") return duration >= 60 && duration <= 20 * 60;
+  return duration > 20 * 60;
+}
+
+function matchesResolutionFilter(item: VideoItem, filter: ResolutionFilter) {
+  if (filter === "all") return true;
+  if (!item.width || !item.height) return false;
+  if (filter === "landscape") return item.width > item.height;
+  if (filter === "portrait") return item.height > item.width;
+  if (filter === "square") return item.width === item.height;
+  if (filter === "hd") return item.width >= 1280 || item.height >= 720;
+  if (filter === "fhd") return item.width >= 1920 || item.height >= 1080;
+  return item.width >= 3840 || item.height >= 2160;
+}
+
 export default function App() {
   const [folderPath, setFolderPath] = useState("");
   const [items, setItems] = useState<VideoItem[]>([]);
@@ -59,6 +125,11 @@ export default function App() {
   const [sortKey, setSortKey] = useState<SortKey>("modifiedAt");
   const [ascending, setAscending] = useState(false);
   const [thumbSize, setThumbSize] = useState<ThumbSize>("medium");
+  const [viewMode, setViewMode] = useState<ViewMode>("grid");
+  const [selectedDirectory, setSelectedDirectory] = useState("");
+  const [extensionFilter, setExtensionFilter] = useState("all");
+  const [durationFilter, setDurationFilter] = useState<DurationFilter>("all");
+  const [resolutionFilter, setResolutionFilter] = useState<ResolutionFilter>("all");
   const [selectedId, setSelectedId] = useState<string>();
   const [menu, setMenu] = useState<{ x: number; y: number; item: VideoItem }>();
   const [notice, setNotice] = useState("");
@@ -115,6 +186,7 @@ export default function App() {
     }
     setItems([]);
     setSelectedId(undefined);
+    setSelectedDirectory("");
     setProgress({ ...emptyProgress, state: "scanning", rootPath: path, message: "正在扫描" });
     await window.videoBrowser.startScan(path);
   }
@@ -147,12 +219,38 @@ export default function App() {
     window.setTimeout(() => setNotice(""), 1800);
   }
 
+  const directories = useMemo(() => {
+    const root = folderPath.replace(/[/\\]+$/, "");
+    const directoryCounts = new Map<string, { path: string; count: number; relativePath: string }>();
+    for (const item of items) {
+      const relativePath = getRelativeDirectory(root, item.directory);
+      const existing = directoryCounts.get(item.directory);
+      directoryCounts.set(item.directory, {
+        path: item.directory,
+        relativePath,
+        count: (existing?.count ?? 0) + 1
+      });
+    }
+    return [...directoryCounts.values()]
+      .filter((directory) => directory.relativePath !== ".")
+      .sort((a, b) => a.relativePath.localeCompare(b.relativePath, "zh-CN", { numeric: true }));
+  }, [folderPath, items]);
+
+  const extensionOptions = useMemo(() => {
+    return [...new Set(items.map((item) => item.extension).filter(Boolean))]
+      .sort((a, b) => a.localeCompare(b, "zh-CN", { numeric: true }));
+  }, [items]);
+
   const filteredItems = useMemo(() => {
     const keyword = query.trim().toLocaleLowerCase();
     return items
       .filter((item) => (keyword ? item.fileName.toLocaleLowerCase().includes(keyword) : true))
+      .filter((item) => (selectedDirectory ? isWithinDirectory(item.directory, selectedDirectory) : true))
+      .filter((item) => (extensionFilter === "all" ? true : item.extension === extensionFilter))
+      .filter((item) => matchesDurationFilter(item.duration, durationFilter))
+      .filter((item) => matchesResolutionFilter(item, resolutionFilter))
       .sort((a, b) => (ascending ? 1 : -1) * compareItems(a, b, sortKey));
-  }, [items, query, sortKey, ascending]);
+  }, [items, query, selectedDirectory, extensionFilter, durationFilter, resolutionFilter, sortKey, ascending]);
 
   const selectedItem = items.find((item) => item.id === selectedId);
   const gridClass = `video-grid ${thumbSize}`;
@@ -161,39 +259,107 @@ export default function App() {
   return (
     <div className="app-shell">
       <header className="toolbar">
-        <div className="primary-actions">
-          <button className="button primary" onClick={chooseFolder}>选择文件夹</button>
-          <button className="button" disabled={!folderPath || isScanning} onClick={() => void startScan(folderPath)}>刷新</button>
+        <div className="toolbar-row">
+          <div className="primary-actions">
+            <button className="button primary" onClick={chooseFolder}>选择文件夹</button>
+            <button className="button" disabled={!folderPath || isScanning} onClick={() => void startScan(folderPath)}>刷新</button>
+          </div>
+          <input
+            className="search"
+            value={query}
+            onChange={(event) => setQuery(event.target.value)}
+            placeholder="搜索文件名"
+          />
+          <select className="select" value={sortKey} onChange={(event) => setSortKey(event.target.value as SortKey)}>
+            {Object.entries(sortLabels).map(([value, label]) => (
+              <option key={value} value={value}>{label}</option>
+            ))}
+          </select>
+          <button className="icon-button" title={ascending ? "升序" : "降序"} onClick={() => setAscending((value) => !value)}>
+            {ascending ? "↑" : "↓"}
+          </button>
+          <div className="segmented" aria-label="视图模式">
+            <button className={viewMode === "grid" ? "active" : ""} title="网格视图" onClick={() => setViewMode("grid")}>网格</button>
+            <button className={viewMode === "list" ? "active" : ""} title="列表视图" onClick={() => setViewMode("list")}>列表</button>
+          </div>
+          <div className="segmented" aria-label="缩略图大小">
+            {(["small", "medium", "large"] as const).map((size) => (
+              <button
+                key={size}
+                className={thumbSize === size ? "active" : ""}
+                title={`缩略图${size === "small" ? "小" : size === "medium" ? "中" : "大"}`}
+                onClick={() => setThumbSize(size)}
+                disabled={viewMode === "list"}
+              >
+                {size === "small" ? "小" : size === "medium" ? "中" : "大"}
+              </button>
+            ))}
+          </div>
         </div>
-        <input
-          className="search"
-          value={query}
-          onChange={(event) => setQuery(event.target.value)}
-          placeholder="搜索文件名"
-        />
-        <select className="select" value={sortKey} onChange={(event) => setSortKey(event.target.value as SortKey)}>
-          {Object.entries(sortLabels).map(([value, label]) => (
-            <option key={value} value={value}>{label}</option>
-          ))}
-        </select>
-        <button className="icon-button" title={ascending ? "升序" : "降序"} onClick={() => setAscending((value) => !value)}>
-          {ascending ? "↑" : "↓"}
-        </button>
-        <div className="segmented" aria-label="缩略图大小">
-          {(["small", "medium", "large"] as const).map((size) => (
-            <button
-              key={size}
-              className={thumbSize === size ? "active" : ""}
-              title={`缩略图${size === "small" ? "小" : size === "medium" ? "中" : "大"}`}
-              onClick={() => setThumbSize(size)}
-            >
-              {size === "small" ? "小" : size === "medium" ? "中" : "大"}
-            </button>
-          ))}
+        <div className="toolbar-row filter-row">
+          <select className="select" value={extensionFilter} onChange={(event) => setExtensionFilter(event.target.value)}>
+            <option value="all">全部格式</option>
+            {extensionOptions.map((extension) => (
+              <option key={extension} value={extension}>{extension.replace(".", "").toUpperCase()}</option>
+            ))}
+          </select>
+          <select className="select" value={durationFilter} onChange={(event) => setDurationFilter(event.target.value as DurationFilter)}>
+            {Object.entries(durationLabels).map(([value, label]) => (
+              <option key={value} value={value}>{label}</option>
+            ))}
+          </select>
+          <select className="select" value={resolutionFilter} onChange={(event) => setResolutionFilter(event.target.value as ResolutionFilter)}>
+            {Object.entries(resolutionLabels).map(([value, label]) => (
+              <option key={value} value={value}>{label}</option>
+            ))}
+          </select>
+          <button
+            className="button subtle"
+            disabled={!query && !selectedDirectory && extensionFilter === "all" && durationFilter === "all" && resolutionFilter === "all"}
+            onClick={() => {
+              setQuery("");
+              setSelectedDirectory("");
+              setExtensionFilter("all");
+              setDurationFilter("all");
+              setResolutionFilter("all");
+            }}
+          >
+            清除筛选
+          </button>
         </div>
       </header>
 
       <main className="content">
+        <aside className="folder-pane">
+          <div className="pane-title">文件夹</div>
+          <button
+            className={`folder-item root ${selectedDirectory ? "" : "active"}`}
+            disabled={!folderPath}
+            onClick={() => setSelectedDirectory("")}
+            title={folderPath || "未选择文件夹"}
+          >
+            <span className="folder-name">全部视频</span>
+            <span className="folder-count">{items.length}</span>
+          </button>
+          <div className="folder-list">
+            {directories.map((directory) => {
+              const depth = directory.relativePath === "." ? 0 : directory.relativePath.split("/").length - 1;
+              return (
+                <button
+                  key={directory.path}
+                  className={`folder-item ${selectedDirectory === directory.path ? "active" : ""}`}
+                  style={{ paddingLeft: 12 + depth * 14 }}
+                  onClick={() => setSelectedDirectory(directory.path)}
+                  title={directory.relativePath === "." ? folderPath : directory.relativePath}
+                >
+                  <span className="folder-name">{getDirectoryName(directory.relativePath)}</span>
+                  <span className="folder-count">{directory.count}</span>
+                </button>
+              );
+            })}
+          </div>
+        </aside>
+
         <section className="browser-pane">
           {!bridgeReady && (
             <div className="empty-state">
@@ -220,11 +386,11 @@ export default function App() {
           {bridgeReady && items.length > 0 && filteredItems.length === 0 && (
             <div className="empty-state">
               <h1>没有匹配结果</h1>
-              <p>换一个文件名关键词试试。</p>
+              <p>换一个关键词、文件夹或筛选条件试试。</p>
             </div>
           )}
 
-          {bridgeReady && filteredItems.length > 0 && (
+          {bridgeReady && filteredItems.length > 0 && viewMode === "grid" && (
             <div className={gridClass}>
               {filteredItems.map((item) => (
                 <article
@@ -255,6 +421,39 @@ export default function App() {
                     </div>
                   </div>
                 </article>
+              ))}
+            </div>
+          )}
+
+          {bridgeReady && filteredItems.length > 0 && viewMode === "list" && (
+            <div className="video-list" role="table" aria-label="视频列表">
+              <div className="video-list-header" role="row">
+                <span>文件名</span>
+                <span>时长</span>
+                <span>大小</span>
+                <span>分辨率</span>
+                <span>修改时间</span>
+                <span>所在文件夹</span>
+              </div>
+              {filteredItems.map((item) => (
+                <button
+                  key={item.id}
+                  className={`video-row ${selectedId === item.id ? "selected" : ""}`}
+                  onClick={() => setSelectedId(item.id)}
+                  onContextMenu={(event) => {
+                    event.preventDefault();
+                    setSelectedId(item.id);
+                    setMenu({ x: event.clientX, y: event.clientY, item });
+                  }}
+                  title={item.filePath}
+                >
+                  <span className="row-name">{item.fileName}</span>
+                  <span>{formatDuration(item.duration)}</span>
+                  <span>{formatBytes(item.size)}</span>
+                  <span>{item.width && item.height ? `${item.width} × ${item.height}` : "未读取"}</span>
+                  <span>{formatDate(item.modifiedAt)}</span>
+                  <span>{getRelativeDirectory(folderPath, item.directory)}</span>
+                </button>
               ))}
             </div>
           )}

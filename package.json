@@ -6,8 +6,12 @@
   "main": "dist-electron/electron/main.js",
   "type": "module",
   "scripts": {
+    "ensure:electron": "node scripts/ensure-electron.cjs",
+    "postinstall": "node scripts/ensure-electron.cjs",
+    "predev": "node scripts/ensure-electron.cjs",
     "dev": "concurrently -k \"vite --host 127.0.0.1\" \"tsc -p tsconfig.electron.json --watch\" \"wait-on tcp:5173 dist-electron/electron/main.js && electron .\"",
     "build": "tsc -b && vite build && tsc -p tsconfig.electron.json",
+    "predist:zip": "node scripts/ensure-electron.cjs",
     "dist:zip": "npm run build && electron-builder --win zip",
     "preview": "vite preview --host 127.0.0.1",
     "typecheck": "tsc -b && tsc -p tsconfig.electron.json --noEmit"
