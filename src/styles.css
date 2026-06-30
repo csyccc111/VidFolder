@@ -36,14 +36,14 @@ button:disabled {
 
 .app-shell {
   display: grid;
-  grid-template-rows: 98px minmax(0, 1fr) 32px;
+  grid-template-rows: auto minmax(0, 1fr) 32px;
   height: 100vh;
   background: #101216;
 }
 
 .toolbar {
   display: grid;
-  grid-template-rows: 36px 34px;
+  grid-template-rows: auto auto;
   align-content: center;
   gap: 8px;
   padding: 10px 14px;
@@ -60,6 +60,20 @@ button:disabled {
 
 .filter-row {
   justify-content: flex-start;
+}
+
+.dependency-alert {
+  min-height: 28px;
+  border: 1px solid #6d5630;
+  border-radius: 6px;
+  background: #2a2117;
+  color: #f3c982;
+  line-height: 26px;
+  padding: 0 10px;
+  font-size: 12px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .primary-actions {
@@ -396,6 +410,22 @@ button:disabled {
   color: #8f9aaa;
   font-size: 12px;
   font-weight: 650;
+}
+
+.list-sort-button {
+  height: 100%;
+  min-width: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  font-weight: inherit;
+  text-align: left;
+  padding: 0;
+}
+
+.list-sort-button:hover {
+  color: #eef2f7;
 }
 
 .video-row {

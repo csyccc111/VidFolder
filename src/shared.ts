@@ -31,6 +31,22 @@ export type ScanProgress = {
 
 export type AppSettings = {
   lastFolder?: string;
+  viewMode?: "grid" | "list";
+  sortKey?: "fileName" | "modifiedAt" | "size" | "duration";
+  ascending?: boolean;
+  thumbSize?: "small" | "medium" | "large";
+};
+
+export type ToolStatus = {
+  available: boolean;
+  version?: string;
+  error?: string;
+};
+
+export type DependencyStatus = {
+  ffmpeg: ToolStatus;
+  ffprobe: ToolStatus;
+  checkedAt: number;
 };
 
 export type ContextAction = "showInFolder" | "openVideo" | "copyPath" | "regenerateThumbnail";
@@ -42,6 +58,8 @@ export type IpcEvents = {
 
 export type ElectronApi = {
   getSettings: () => Promise<AppSettings>;
+  updateSettings: (settings: Partial<AppSettings>) => Promise<AppSettings>;
+  getDependencyStatus: () => Promise<DependencyStatus>;
   chooseFolder: () => Promise<string | undefined>;
   startScan: (folderPath: string) => Promise<void>;
   cancelScan: () => Promise<void>;

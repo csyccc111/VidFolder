@@ -4,7 +4,7 @@ import { createHash } from "node:crypto";
 import { promises as fs } from "node:fs";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
-import type { AppSettings, ContextAction, ScanProgress, VideoItem } from "../src/shared.js";
+import type { AppSettings, ContextAction, DependencyStatus, ScanProgress, ToolStatus, VideoItem } from "../src/shared.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const isDev = process.env.VITE_DEV_SERVER_URL || !app.isPackaged;
@@ -24,6 +24,11 @@ let metadataCachePath = "";
 let metadataCache: Record<string, CacheEntry> = {};
 let thumbnailQueue: Array<() => Promise<void>> = [];
 let runningThumbnails = 0;
+let dependencyStatus: DependencyStatus = {
+  ffmpeg: { available: false },
+  ffprobe: { available: false },
+  checkedAt: 0
+};
 
 protocol.registerSchemesAsPrivileged([
   {
@@ -103,6 +108,13 @@ async function writeSettings(settings: AppSettings) {
   await fs.writeFile(settingsPath, JSON.stringify(settings, null, 2), "utf8");
 }
 
+async function updateSettings(nextSettings: Partial<AppSettings>): Promise<AppSettings> {
+  const current = await readSettings();
+  const merged = { ...current, ...nextSettings };
+  await writeSettings(merged);
+  return merged;
+}
+
 async function saveMetadataCache() {
   await fs.writeFile(metadataCachePath, JSON.stringify(metadataCache, null, 2), "utf8");
 }
@@ -120,7 +132,36 @@ function runProcess(command: string, args: string[], timeoutMs = 30000): Promise
   });
 }
 
+async function checkTool(command: "ffmpeg" | "ffprobe"): Promise<ToolStatus> {
+  try {
+    const { stdout, stderr } = await runProcess(command, ["-version"], 8000);
+    const firstLine = (stdout || stderr).split(/\r?\n/).find(Boolean);
+    return {
+      available: true,
+      version: firstLine
+    };
+  } catch (error) {
+    return {
+      available: false,
+      error: error instanceof Error ? error.message : String(error)
+    };
+  }
+}
+
+async function checkDependencies(): Promise<DependencyStatus> {
+  const [ffmpeg, ffprobe] = await Promise.all([checkTool("ffmpeg"), checkTool("ffprobe")]);
+  dependencyStatus = {
+    ffmpeg,
+    ffprobe,
+    checkedAt: Date.now()
+  };
+  return dependencyStatus;
+}
+
 async function probeVideo(filePath: string) {
+  if (!dependencyStatus.ffprobe.available) {
+    throw new Error("缺少 ffprobe，无法读取视频时长和分辨率。");
+  }
   const { stdout } = await runProcess("ffprobe", [
     "-v",
     "error",
@@ -143,6 +184,9 @@ async function probeVideo(filePath: string) {
 }
 
 async function generateThumbnail(filePath: string, key: string, duration?: number) {
+  if (!dependencyStatus.ffmpeg.available) {
+    throw new Error("缺少 ffmpeg，无法生成视频封面。");
+  }
   const outputPath = path.join(cacheDir, `${key}.jpg`);
   const timestamp = duration && duration > 0 ? Math.min(5, Math.max(0.1, duration / 2)) : 5;
   await runProcess("ffmpeg", [
@@ -272,7 +316,7 @@ async function startScan(folderPath: string) {
     failures: 0,
     message: "正在扫描"
   };
-  await writeSettings({ lastFolder: folderPath });
+  await updateSettings({ lastFolder: folderPath });
   sendProgress(counters);
 
   try {
@@ -385,8 +429,11 @@ async function createWindow() {
 
 app.whenReady().then(async () => {
   await ensureAppFiles();
+  await checkDependencies();
   await registerThumbnailProtocol();
   ipcMain.handle("settings:get", readSettings);
+  ipcMain.handle("settings:update", async (_event, settings: Partial<AppSettings>) => updateSettings(settings));
+  ipcMain.handle("dependencies:get", async () => dependencyStatus.checkedAt ? dependencyStatus : checkDependencies());
   ipcMain.handle("folder:choose", async () => {
     const result = await dialog.showOpenDialog({ properties: ["openDirectory"] });
     return result.canceled ? undefined : result.filePaths[0];

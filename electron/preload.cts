@@ -1,10 +1,12 @@
 import type { IpcRendererEvent } from "electron";
-import type { ContextAction, ElectronApi, ScanProgress, VideoItem } from "../src/shared";
+import type { AppSettings, ContextAction, ElectronApi, ScanProgress, VideoItem } from "../src/shared";
 
 const { contextBridge, ipcRenderer } = require("electron") as typeof import("electron");
 
 const api: ElectronApi = {
   getSettings: () => ipcRenderer.invoke("settings:get"),
+  updateSettings: (settings: Partial<AppSettings>) => ipcRenderer.invoke("settings:update", settings),
+  getDependencyStatus: () => ipcRenderer.invoke("dependencies:get"),
   chooseFolder: () => ipcRenderer.invoke("folder:choose"),
   startScan: (folderPath) => ipcRenderer.invoke("scan:start", folderPath),
   cancelScan: () => ipcRenderer.invoke("scan:cancel"),

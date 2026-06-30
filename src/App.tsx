@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import type { ContextAction, ScanProgress, VideoItem } from "./shared";
+import type { ContextAction, DependencyStatus, ScanProgress, VideoItem } from "./shared";
 
 type SortKey = "fileName" | "modifiedAt" | "size" | "duration";
 type ThumbSize = "small" | "medium" | "large";
@@ -38,6 +38,13 @@ const resolutionLabels: Record<ResolutionFilter, string> = {
   fhd: "1080p+",
   uhd: "4K+"
 };
+
+const sortableListColumns: Array<{ key: SortKey; label: string }> = [
+  { key: "fileName", label: "文件名" },
+  { key: "duration", label: "时长" },
+  { key: "size", label: "大小" },
+  { key: "modifiedAt", label: "修改时间" }
+];
 
 function formatBytes(bytes: number) {
   if (!Number.isFinite(bytes) || bytes <= 0) return "0 B";
@@ -134,7 +141,9 @@ export default function App() {
   const [menu, setMenu] = useState<{ x: number; y: number; item: VideoItem }>();
   const [notice, setNotice] = useState("");
   const [bridgeReady, setBridgeReady] = useState(true);
+  const [dependencyStatus, setDependencyStatus] = useState<DependencyStatus>();
   const initialized = useRef(false);
+  const settingsLoaded = useRef(false);
 
   useEffect(() => {
     if (!window.videoBrowser) {
@@ -157,17 +166,36 @@ export default function App() {
     if (!initialized.current) {
       initialized.current = true;
       window.videoBrowser.getSettings().then((settings) => {
+        if (settings.viewMode) setViewMode(settings.viewMode);
+        if (settings.sortKey) setSortKey(settings.sortKey);
+        if (typeof settings.ascending === "boolean") setAscending(settings.ascending);
+        if (settings.thumbSize) setThumbSize(settings.thumbSize);
+        settingsLoaded.current = true;
         if (settings.lastFolder) {
           setFolderPath(settings.lastFolder);
           void startScan(settings.lastFolder);
         }
       });
+      window.videoBrowser.getDependencyStatus().then(setDependencyStatus);
     }
     return () => {
       disposeProgress();
       disposeItem();
     };
   }, []);
+
+  useEffect(() => {
+    if (!bridgeReady || !settingsLoaded.current || !window.videoBrowser) return;
+    const timer = window.setTimeout(() => {
+      void window.videoBrowser.updateSettings({
+        viewMode,
+        sortKey,
+        ascending,
+        thumbSize
+      });
+    }, 250);
+    return () => window.clearTimeout(timer);
+  }, [bridgeReady, viewMode, sortKey, ascending, thumbSize]);
 
   useEffect(() => {
     const closeMenu = () => setMenu(undefined);
@@ -224,12 +252,18 @@ export default function App() {
     const directoryCounts = new Map<string, { path: string; count: number; relativePath: string }>();
     for (const item of items) {
       const relativePath = getRelativeDirectory(root, item.directory);
-      const existing = directoryCounts.get(item.directory);
-      directoryCounts.set(item.directory, {
-        path: item.directory,
-        relativePath,
-        count: (existing?.count ?? 0) + 1
-      });
+      if (relativePath === ".") continue;
+      const parts = relativePath.split("/").filter(Boolean);
+      for (let index = 0; index < parts.length; index += 1) {
+        const ancestorRelativePath = parts.slice(0, index + 1).join("/");
+        const ancestorPath = `${root}\\${ancestorRelativePath.replaceAll("/", "\\")}`;
+        const existing = directoryCounts.get(ancestorPath);
+        directoryCounts.set(ancestorPath, {
+          path: ancestorPath,
+          relativePath: ancestorRelativePath,
+          count: (existing?.count ?? 0) + 1
+        });
+      }
     }
     return [...directoryCounts.values()]
       .filter((directory) => directory.relativePath !== ".")
@@ -255,6 +289,24 @@ export default function App() {
   const selectedItem = items.find((item) => item.id === selectedId);
   const gridClass = `video-grid ${thumbSize}`;
   const isScanning = progress.state === "scanning";
+  const missingTools = [
+    dependencyStatus?.ffmpeg.available === false ? "ffmpeg" : undefined,
+    dependencyStatus?.ffprobe.available === false ? "ffprobe" : undefined
+  ].filter(Boolean);
+
+  function changeListSort(nextKey: SortKey) {
+    if (sortKey === nextKey) {
+      setAscending((value) => !value);
+    } else {
+      setSortKey(nextKey);
+      setAscending(nextKey === "fileName");
+    }
+  }
+
+  function sortIndicator(key: SortKey) {
+    if (sortKey !== key) return "";
+    return ascending ? " ↑" : " ↓";
+  }
 
   return (
     <div className="app-shell">
@@ -327,6 +379,11 @@ export default function App() {
             清除筛选
           </button>
         </div>
+        {dependencyStatus && missingTools.length > 0 && (
+          <div className="dependency-alert">
+            缺少 {missingTools.join("、")}。已有缓存仍可浏览，但新视频的封面或时长/分辨率可能无法生成。
+          </div>
+        )}
       </header>
 
       <main className="content">
@@ -353,7 +410,7 @@ export default function App() {
                   title={directory.relativePath === "." ? folderPath : directory.relativePath}
                 >
                   <span className="folder-name">{getDirectoryName(directory.relativePath)}</span>
-                  <span className="folder-count">{directory.count}</span>
+                  <span className="folder-count" title="包含子文件夹的视频数">{directory.count}</span>
                 </button>
               );
             })}
@@ -428,11 +485,15 @@ export default function App() {
           {bridgeReady && filteredItems.length > 0 && viewMode === "list" && (
             <div className="video-list" role="table" aria-label="视频列表">
               <div className="video-list-header" role="row">
-                <span>文件名</span>
-                <span>时长</span>
-                <span>大小</span>
+                {sortableListColumns.slice(0, 3).map((column) => (
+                  <button key={column.key} className="list-sort-button" onClick={() => changeListSort(column.key)}>
+                    {column.label}{sortIndicator(column.key)}
+                  </button>
+                ))}
                 <span>分辨率</span>
-                <span>修改时间</span>
+                <button className="list-sort-button" onClick={() => changeListSort("modifiedAt")}>
+                  修改时间{sortIndicator("modifiedAt")}
+                </button>
                 <span>所在文件夹</span>
               </div>
               {filteredItems.map((item) => (
@@ -497,6 +558,8 @@ export default function App() {
         <span>{progress.message ?? "空闲"}</span>
         <span>封面 {progress.thumbnailsReady}/{progress.found}</span>
         <span>失败 {progress.failures}</span>
+        {dependencyStatus && <span>{dependencyStatus.ffmpeg.available ? "ffmpeg 正常" : "缺少 ffmpeg"}</span>}
+        {dependencyStatus && <span>{dependencyStatus.ffprobe.available ? "ffprobe 正常" : "缺少 ffprobe"}</span>}
         {notice && <span className="notice">{notice}</span>}
       </footer>
 
