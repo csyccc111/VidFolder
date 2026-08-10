@@ -76,6 +76,31 @@ button:disabled {
   white-space: nowrap;
 }
 
+.scan-error-banner,
+.scan-warning-banner {
+  min-height: 28px;
+  border-radius: 6px;
+  line-height: 26px;
+  padding: 0 10px;
+  font-size: 12px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  cursor: help;
+}
+
+.scan-error-banner {
+  border: 1px solid #7a3a35;
+  background: #2b1a18;
+  color: #ffb4aa;
+}
+
+.scan-warning-banner {
+  border: 1px solid #6d6a30;
+  background: #2a2817;
+  color: #eadfa0;
+}
+
 .primary-actions {
   display: flex;
   gap: 8px;

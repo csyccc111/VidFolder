@@ -12,7 +12,9 @@ const emptyProgress: ScanProgress = {
   found: 0,
   processed: 0,
   thumbnailsReady: 0,
-  failures: 0
+  failures: 0,
+  warningCount: 0,
+  warnings: []
 };
 
 const sortLabels: Record<SortKey, string> = {
@@ -240,7 +242,9 @@ export default function App() {
     setMenu(undefined);
     if (updated) {
       setItems((current) => current.map((entry) => (entry.id === updated.id ? updated : entry)));
-      setNotice(action === "regenerateThumbnail" ? "封面已重新生成" : "");
+      if (action === "regenerateThumbnail") {
+        setNotice(updated.thumbnailStatus === "ready" ? "封面已重新生成" : "封面重新生成失败，请查看详情面板");
+      }
     } else if (action === "copyPath") {
       setNotice("路径已复制");
     }
@@ -384,6 +388,19 @@ export default function App() {
             缺少 {missingTools.join("、")}。已有缓存仍可浏览，但新视频的封面或时长/分辨率可能无法生成。
           </div>
         )}
+        {progress.state === "error" && progress.scanError && (
+          <div className="scan-error-banner" title={progress.scanError.detail}>
+            扫描失败：{progress.scanError.message}（悬停查看技术详情）
+          </div>
+        )}
+        {progress.warningCount > 0 && (
+          <div
+            className="scan-warning-banner"
+            title={progress.warnings.length > 0 ? progress.warnings.join("\n") : "无法获取完整路径列表"}
+          >
+            扫描期间有 {progress.warningCount} 个文件夹无法访问，已跳过；其它视频不受影响。
+          </div>
+        )}
       </header>
 
       <main className="content">
@@ -435,8 +452,27 @@ export default function App() {
 
           {bridgeReady && folderPath && items.length === 0 && (
             <div className="empty-state">
-              <h1>{isScanning ? "正在扫描" : "没有找到视频"}</h1>
-              <p>{isScanning ? "发现的视频会立即出现在这里。" : "当前文件夹及子文件夹中没有支持的视频格式。"}</p>
+              {progress.state === "cancelled" ? (
+                <>
+                  <h1>扫描已取消</h1>
+                  <p>本次扫描已停止，可点击"刷新"重新扫描。</p>
+                </>
+              ) : progress.state === "error" ? (
+                <>
+                  <h1>扫描失败</h1>
+                  <p>{progress.scanError?.message ?? "发生未知错误"}（悬停顶部红色提示查看技术详情）</p>
+                </>
+              ) : isScanning ? (
+                <>
+                  <h1>正在扫描</h1>
+                  <p>发现的视频会立即出现在这里。</p>
+                </>
+              ) : (
+                <>
+                  <h1>没有找到视频</h1>
+                  <p>当前文件夹及子文件夹中没有支持的视频格式。</p>
+                </>
+              )}
             </div>
           )}
 
@@ -538,10 +574,20 @@ export default function App() {
               <dd>{formatDate(selectedItem.modifiedAt)}</dd>
               <dt>分辨率</dt>
               <dd>{selectedItem.width && selectedItem.height ? `${selectedItem.width} × ${selectedItem.height}` : "未读取"}</dd>
-              {selectedItem.error && (
+              {selectedItem.metadataError && (
                 <>
-                  <dt>错误</dt>
-                  <dd className="error-text" title={selectedItem.error}>{selectedItem.error}</dd>
+                  <dt>元信息错误</dt>
+                  <dd className="error-text" title={selectedItem.metadataError.detail ?? selectedItem.metadataError.message}>
+                    {selectedItem.metadataError.message}
+                  </dd>
+                </>
+              )}
+              {selectedItem.thumbnailError && (
+                <>
+                  <dt>封面错误</dt>
+                  <dd className="error-text" title={selectedItem.thumbnailError.detail ?? selectedItem.thumbnailError.message}>
+                    {selectedItem.thumbnailError.message}
+                  </dd>
                 </>
               )}
             </dl>

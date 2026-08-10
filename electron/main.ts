@@ -4,17 +4,57 @@ import { createHash } from "node:crypto";
 import { promises as fs } from "node:fs";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
-import type { AppSettings, ContextAction, DependencyStatus, ScanProgress, ToolStatus, VideoItem } from "../src/shared.js";
+import type { AppSettings, ContextAction, DependencyStatus, ErrorCategory, ItemError, ScanProgress, ThumbnailStatus, ToolStatus, VideoItem } from "../src/shared.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const isDev = process.env.VITE_DEV_SERVER_URL || !app.isPackaged;
 const videoExtensions = new Set([".mp4", ".mkv", ".avi", ".mov", ".wmv", ".flv", ".webm", ".m4v"]);
 const thumbnailConcurrency = 2;
+const maxScanWarnings = 10;
 
 type CacheEntry = {
   key: string;
-  item: Pick<VideoItem, "duration" | "width" | "height" | "thumbnailPath" | "thumbnailStatus" | "metadataStatus" | "error">;
+  item: Pick<
+    VideoItem,
+    "duration" | "width" | "height" | "thumbnailPath" | "thumbnailStatus" | "metadataStatus" | "metadataError" | "thumbnailError"
+  >;
 };
+
+/** 可分类错误：携带稳定分类与用户可见中文文案，原始错误作为 cause 保留。 */
+class ScanError extends Error {
+  readonly category: ErrorCategory;
+  readonly cause?: unknown;
+  constructor(category: ErrorCategory, message: string, cause?: unknown) {
+    super(message);
+    this.category = category;
+    this.cause = cause;
+  }
+}
+
+function extractDetail(error: unknown): string {
+  if (error instanceof Error) {
+    const withStderr = error as Error & { stderr?: string };
+    return withStderr.stderr?.trim() || withStderr.message;
+  }
+  return String(error);
+}
+
+/** 把任意错误转换为稳定结构的 ItemError：中文文案 + 技术详情分离。 */
+function toItemError(error: unknown): ItemError {
+  if (error instanceof ScanError) {
+    return {
+      category: error.category,
+      message: error.message,
+      detail: error.cause !== undefined ? extractDetail(error.cause) : undefined
+    };
+  }
+  return { category: "unknown", message: "处理视频时发生未知错误", detail: extractDetail(error) };
+}
+
+/** 路径规范化，用于缓存清理的范围判断（与前端 normalizePath 语义一致）。 */
+function normalizePathForCompare(filePath: string) {
+  return filePath.replaceAll("\\", "/").replace(/\/+$/, "").toLocaleLowerCase();
+}
 
 let mainWindow: BrowserWindow | undefined;
 let activeScanToken = 0;
@@ -83,6 +123,21 @@ async function registerThumbnailProtocol() {
   });
 }
 
+/** 旧版（v0.3）缓存条目迁移：error 字符串 → 新结构的分类错误。返回是否发生迁移。 */
+function migrateLegacyCacheEntry(entry: CacheEntry): boolean {
+  const legacy = entry?.item as (CacheEntry["item"] & { error?: string }) | undefined;
+  if (!legacy || typeof legacy.error !== "string") return false;
+  const detail = legacy.error;
+  delete legacy.error;
+  if (legacy.metadataStatus === "failed" && !legacy.metadataError) {
+    legacy.metadataError = { category: "probe_failed", message: "无法读取视频时长和分辨率", detail };
+  }
+  if (legacy.thumbnailStatus === "failed" && !legacy.thumbnailError) {
+    legacy.thumbnailError = { category: "thumbnail_failed", message: "封面生成失败", detail };
+  }
+  return true;
+}
+
 async function ensureAppFiles() {
   const userData = app.getPath("userData");
   cacheDir = path.join(userData, "cache");
@@ -90,8 +145,20 @@ async function ensureAppFiles() {
   metadataCachePath = path.join(userData, "metadata-cache.json");
   await fs.mkdir(cacheDir, { recursive: true });
   try {
-    metadataCache = JSON.parse(await fs.readFile(metadataCachePath, "utf8")) as Record<string, CacheEntry>;
+    const parsed = JSON.parse(await fs.readFile(metadataCachePath, "utf8")) as Record<string, CacheEntry>;
+    let migrated = false;
+    for (const entry of Object.values(parsed)) {
+      if (entry && typeof entry === "object" && migrateLegacyCacheEntry(entry)) migrated = true;
+    }
+    metadataCache = parsed;
+    if (migrated) await saveMetadataCache();
   } catch {
+    // metadata-cache.json 损坏：备份原文件后安全回退为空缓存，不阻断启动。
+    try {
+      await fs.rename(metadataCachePath, `${metadataCachePath}.corrupt-${Date.now()}`);
+    } catch {
+      /* 备份失败不阻断启动 */
+    }
     metadataCache = {};
   }
 }
@@ -160,21 +227,31 @@ async function checkDependencies(): Promise<DependencyStatus> {
 
 async function probeVideo(filePath: string) {
   if (!dependencyStatus.ffprobe.available) {
-    throw new Error("缺少 ffprobe，无法读取视频时长和分辨率。");
+    throw new ScanError("dependency_missing", "缺少 ffprobe，无法读取视频时长和分辨率。");
   }
-  const { stdout } = await runProcess("ffprobe", [
-    "-v",
-    "error",
-    "-print_format",
-    "json",
-    "-show_entries",
-    "format=duration:stream=width,height",
-    filePath
-  ]);
-  const parsed = JSON.parse(stdout) as {
+  let stdout: string;
+  try {
+    ({ stdout } = await runProcess("ffprobe", [
+      "-v",
+      "error",
+      "-print_format",
+      "json",
+      "-show_entries",
+      "format=duration:stream=width,height",
+      filePath
+    ]));
+  } catch (error) {
+    throw new ScanError("probe_failed", "无法读取视频时长和分辨率", error);
+  }
+  let parsed: {
     format?: { duration?: string };
     streams?: Array<{ width?: number; height?: number }>;
   };
+  try {
+    parsed = JSON.parse(stdout) as typeof parsed;
+  } catch (error) {
+    throw new ScanError("probe_failed", "视频信息解析失败", error);
+  }
   const videoStream = parsed.streams?.find((stream) => stream.width && stream.height);
   return {
     duration: parsed.format?.duration ? Number(parsed.format.duration) : undefined,
@@ -185,32 +262,78 @@ async function probeVideo(filePath: string) {
 
 async function generateThumbnail(filePath: string, key: string, duration?: number) {
   if (!dependencyStatus.ffmpeg.available) {
-    throw new Error("缺少 ffmpeg，无法生成视频封面。");
+    throw new ScanError("dependency_missing", "缺少 ffmpeg，无法生成视频封面。");
   }
   const outputPath = path.join(cacheDir, `${key}.jpg`);
   const timestamp = duration && duration > 0 ? Math.min(5, Math.max(0.1, duration / 2)) : 5;
-  await runProcess("ffmpeg", [
-    "-y",
-    "-ss",
-    String(timestamp),
-    "-i",
-    filePath,
-    "-frames:v",
-    "1",
-    "-vf",
-    "scale=480:-1",
-    "-q:v",
-    "4",
-    outputPath
-  ], 45000);
+  try {
+    await runProcess("ffmpeg", [
+      "-y",
+      "-ss",
+      String(timestamp),
+      "-i",
+      filePath,
+      "-frames:v",
+      "1",
+      "-vf",
+      "scale=480:-1",
+      "-q:v",
+      "4",
+      outputPath
+    ], 45000);
+  } catch (error) {
+    throw new ScanError("thumbnail_failed", "封面生成失败", error);
+  }
   return outputPath;
 }
 
+/** 校验路径位于应用缓存目录内，防止缓存索引被篡改后操作范围外路径。 */
+function isWithinCacheDir(targetPath: string) {
+  const resolved = path.resolve(targetPath);
+  const cacheRoot = path.resolve(cacheDir);
+  return resolved === cacheRoot || resolved.startsWith(`${cacheRoot}${path.sep}`);
+}
+
+/** 缩略图真实可用性校验：存在、非零字节、JPEG 文件头完整。 */
+async function isThumbnailUsable(thumbnailPath: string): Promise<boolean> {
+  try {
+    if (!isWithinCacheDir(thumbnailPath)) return false;
+    const stat = await fs.stat(thumbnailPath);
+    if (stat.size === 0) return false;
+    const handle = await fs.open(thumbnailPath, "r");
+    try {
+      const buffer = Buffer.alloc(3);
+      const { bytesRead } = await handle.read(buffer, 0, 3, 0);
+      return bytesRead === 3 && buffer[0] === 0xff && buffer[1] === 0xd8 && buffer[2] === 0xff;
+    } finally {
+      await handle.close();
+    }
+  } catch {
+    return false;
+  }
+}
+
 async function createVideoItem(filePath: string): Promise<VideoItem> {
-  const stat = await fs.stat(filePath);
+  let stat;
+  try {
+    stat = await fs.stat(filePath);
+  } catch (error) {
+    throw new ScanError("file_unreadable", "无法读取视频文件信息", error);
+  }
   const extension = path.extname(filePath).toLowerCase();
   const key = cacheKey(filePath, stat.size, stat.mtimeMs);
   const cached = metadataCache[filePath]?.key === key ? metadataCache[filePath].item : undefined;
+  // 缩略图命中缓存后仍需校验文件真实可用；缺失/损坏则降级为 pending，由扫描流程自动重试。
+  let thumbnailStatus: ThumbnailStatus = cached?.thumbnailStatus === "ready" ? "ready" : "pending";
+  let thumbnailPath: string | undefined;
+  if (cached?.thumbnailStatus === "ready" && cached.thumbnailPath) {
+    if (await isThumbnailUsable(cached.thumbnailPath)) {
+      thumbnailPath = toThumbnailUrl(cached.thumbnailPath);
+    } else {
+      thumbnailStatus = "pending";
+      thumbnailPath = undefined;
+    }
+  }
   return {
     id: itemId(filePath),
     filePath,
@@ -222,24 +345,32 @@ async function createVideoItem(filePath: string): Promise<VideoItem> {
     duration: cached?.duration,
     width: cached?.width,
     height: cached?.height,
-    thumbnailPath: cached?.thumbnailPath && cached.thumbnailStatus === "ready" ? toThumbnailUrl(cached.thumbnailPath) : undefined,
-    thumbnailStatus: cached?.thumbnailStatus === "ready" ? "ready" : "pending",
+    thumbnailPath,
+    thumbnailStatus,
     metadataStatus: cached?.metadataStatus === "ready" ? "ready" : "pending",
-    error: cached?.error
+    metadataError: cached?.metadataError,
+    thumbnailError: cached?.thumbnailError
   };
 }
 
-async function* walkVideos(rootPath: string): AsyncGenerator<string> {
+async function* walkVideos(rootPath: string, isRoot: boolean, warnings: string[], warningCount: { count: number }): AsyncGenerator<string> {
   let entries;
   try {
     entries = await fs.readdir(rootPath, { withFileTypes: true });
-  } catch {
+  } catch (error) {
+    if (isRoot) {
+      // 根目录不可读：必须使扫描进入明确错误状态，不得静默吞掉。
+      throw new ScanError("directory_unreadable", "无法读取所选文件夹，请检查权限或路径是否存在", error);
+    }
+    // 子目录不可读：跳过并累计警告，继续扫描其余部分。
+    warningCount.count += 1;
+    if (warnings.length < maxScanWarnings) warnings.push(rootPath);
     return;
   }
   for (const entry of entries) {
     const nextPath = path.join(rootPath, entry.name);
     if (entry.isDirectory()) {
-      yield* walkVideos(nextPath);
+      yield* walkVideos(nextPath, false, warnings, warningCount);
     } else if (entry.isFile() && videoExtensions.has(path.extname(entry.name).toLowerCase())) {
       yield nextPath;
     }
@@ -266,41 +397,48 @@ async function drainThumbnailQueue() {
 async function enrichItem(baseItem: VideoItem, token: number, counters: ScanProgress) {
   let item = { ...baseItem };
   const key = cacheKey(item.filePath, item.size, item.modifiedAt);
-  try {
-    if (item.metadataStatus !== "ready") {
+  let itemFailed = false;
+  // 阶段一：元信息探测。失败不阻断封面生成，两阶段状态与错误各自独立。
+  if (item.metadataStatus !== "ready") {
+    try {
       const metadata = await probeVideo(item.filePath);
-      item = { ...item, ...metadata, metadataStatus: "ready" };
+      item = { ...item, ...metadata, metadataStatus: "ready", metadataError: undefined };
       if (token === activeScanToken) sendItem(item);
+    } catch (error) {
+      itemFailed = true;
+      item = { ...item, metadataStatus: "failed", metadataError: toItemError(error) };
     }
-    if (item.thumbnailStatus !== "ready") {
+  }
+  // 阶段二：封面生成。失败不丢失已读取的元信息。
+  if (item.thumbnailStatus !== "ready") {
+    try {
       const thumbnailPath = await generateThumbnail(item.filePath, key, item.duration);
-      item = { ...item, thumbnailPath: toThumbnailUrl(thumbnailPath), thumbnailStatus: "ready" };
+      item = { ...item, thumbnailPath: toThumbnailUrl(thumbnailPath), thumbnailStatus: "ready", thumbnailError: undefined };
       counters.thumbnailsReady += 1;
       if (token === activeScanToken) sendItem(item);
+    } catch (error) {
+      itemFailed = true;
+      item = { ...item, thumbnailStatus: "failed", thumbnailError: toItemError(error) };
     }
-    metadataCache[item.filePath] = {
-      key,
-      item: {
-        duration: item.duration,
-        width: item.width,
-        height: item.height,
-        thumbnailPath: item.thumbnailPath ? path.join(cacheDir, `${key}.jpg`) : undefined,
-        thumbnailStatus: item.thumbnailStatus,
-        metadataStatus: item.metadataStatus
-      }
-    };
-    await saveMetadataCache();
-  } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
-    counters.failures += 1;
-    item = { ...item, metadataStatus: item.metadataStatus === "ready" ? "ready" : "failed", thumbnailStatus: "failed", error: message };
-    metadataCache[item.filePath] = { key, item };
-    await saveMetadataCache();
-    if (token === activeScanToken) sendItem(item);
-  } finally {
-    counters.processed += 1;
-    if (token === activeScanToken) sendProgress(counters);
   }
+  metadataCache[item.filePath] = {
+    key,
+    item: {
+      duration: item.duration,
+      width: item.width,
+      height: item.height,
+      thumbnailPath: item.thumbnailStatus === "ready" ? path.join(cacheDir, `${key}.jpg`) : undefined,
+      thumbnailStatus: item.thumbnailStatus,
+      metadataStatus: item.metadataStatus,
+      metadataError: item.metadataError,
+      thumbnailError: item.thumbnailError
+    }
+  };
+  if (itemFailed) counters.failures += 1;
+  await saveMetadataCache();
+  if (token === activeScanToken) sendItem(item);
+  counters.processed += 1;
+  if (token === activeScanToken) sendProgress(counters);
 }
 
 async function startScan(folderPath: string) {
@@ -314,13 +452,16 @@ async function startScan(folderPath: string) {
     processed: 0,
     thumbnailsReady: 0,
     failures: 0,
-    message: "正在扫描"
+    message: "正在扫描",
+    warningCount: 0,
+    warnings: []
   };
   await updateSettings({ lastFolder: folderPath });
   sendProgress(counters);
 
   try {
-    for await (const filePath of walkVideos(folderPath)) {
+    const warningCount = { count: 0 };
+    for await (const filePath of walkVideos(folderPath, true, counters.warnings, warningCount)) {
       if (token !== activeScanToken) return;
       try {
         const item = await createVideoItem(filePath);
@@ -344,14 +485,60 @@ async function startScan(folderPath: string) {
     };
     await waitForQueue();
     if (token === activeScanToken) {
-      sendProgress({ ...counters, state: "complete", message: "扫描完成" });
+      const finished = { ...counters, warningCount: warningCount.count };
+      sendProgress({ ...finished, state: "complete", message: "扫描完成" });
+      // 扫描完成后清理当前扫描根内已失效记录与孤儿缩略图（异步、失败不影响主流程）。
+      void cleanupOrphanedCache(folderPath);
     }
   } catch (error) {
+    const scanError = toItemError(error);
     sendProgress({
       ...counters,
       state: "error",
-      message: error instanceof Error ? error.message : String(error)
+      message: "扫描失败",
+      scanError
     });
+  }
+}
+
+/**
+ * 孤儿缓存清理（仅扫描完成后执行）：
+ * - 元信息记录：只删除当前扫描根目录范围内、源文件已确认不存在的记录。
+ * - 缩略图：只删除不再被任何有效缓存记录引用的文件。
+ * - 只操作应用自身缓存目录，不触碰用户视频文件。
+ */
+async function cleanupOrphanedCache(rootPath: string) {
+  try {
+    const rootNorm = normalizePathForCompare(rootPath);
+    const referenced = new Set<string>();
+    for (const [filePath, entry] of Object.entries(metadataCache)) {
+      const norm = normalizePathForCompare(filePath);
+      const inScope = norm === rootNorm || norm.startsWith(`${rootNorm}/`);
+      if (inScope) {
+        try {
+          await fs.stat(filePath);
+        } catch {
+          // 当前扫描根内源文件已不存在：删除失效记录（跨文件夹共用的记录不受影响）。
+          delete metadataCache[filePath];
+          continue;
+        }
+      }
+      const thumbPath = entry?.item?.thumbnailPath;
+      if (typeof thumbPath === "string") {
+        const base = path.basename(thumbPath);
+        if (/^[a-f0-9]{40}\.jpg$/i.test(base)) referenced.add(base);
+      }
+    }
+    const files = await fs.readdir(cacheDir);
+    for (const file of files) {
+      if (!/^[a-f0-9]{40}\.jpg$/i.test(file)) continue;
+      if (!referenced.has(file)) {
+        await fs.unlink(path.join(cacheDir, file)).catch(() => {});
+      }
+    }
+    await saveMetadataCache();
+  } catch {
+    // 清理失败不影响主流程（缩略图缺失时已有自愈重试兜底）。
   }
 }
 
@@ -368,41 +555,39 @@ async function handleContextAction(action: ContextAction, filePath: string): Pro
     clipboard.writeText(filePath);
     return undefined;
   }
+  // regenerateThumbnail：封面无条件重新生成；元信息仅在其缺失/失败时顺带重试，不破坏已有效的元信息。
   const item = await createVideoItem(filePath);
   const key = cacheKey(item.filePath, item.size, item.modifiedAt);
-  delete metadataCache[filePath];
-  await saveMetadataCache();
-  try {
-    const metadata = await probeVideo(filePath);
-    const thumbnailPath = await generateThumbnail(filePath, key, metadata.duration);
-    const updated: VideoItem = {
-      ...item,
-      ...metadata,
-      thumbnailPath: toThumbnailUrl(thumbnailPath),
-      thumbnailStatus: "ready",
-      metadataStatus: "ready"
-    };
-    metadataCache[filePath] = {
-      key,
-      item: {
-        duration: updated.duration,
-        width: updated.width,
-        height: updated.height,
-        thumbnailPath,
-        thumbnailStatus: "ready",
-        metadataStatus: "ready"
-      }
-    };
-    await saveMetadataCache();
-    return updated;
-  } catch (error) {
-    return {
-      ...item,
-      thumbnailStatus: "failed",
-      metadataStatus: "failed",
-      error: error instanceof Error ? error.message : String(error)
-    };
+  let updated: VideoItem = { ...item, thumbnailStatus: "pending", thumbnailPath: undefined };
+  if (updated.metadataStatus !== "ready") {
+    try {
+      const metadata = await probeVideo(filePath);
+      updated = { ...updated, ...metadata, metadataStatus: "ready", metadataError: undefined };
+    } catch (error) {
+      updated = { ...updated, metadataStatus: "failed", metadataError: toItemError(error) };
+    }
   }
+  try {
+    const thumbnailPath = await generateThumbnail(filePath, key, updated.duration);
+    updated = { ...updated, thumbnailPath: toThumbnailUrl(thumbnailPath), thumbnailStatus: "ready", thumbnailError: undefined };
+  } catch (error) {
+    updated = { ...updated, thumbnailStatus: "failed", thumbnailError: toItemError(error) };
+  }
+  metadataCache[filePath] = {
+    key,
+    item: {
+      duration: updated.duration,
+      width: updated.width,
+      height: updated.height,
+      thumbnailPath: updated.thumbnailStatus === "ready" ? path.join(cacheDir, `${key}.jpg`) : undefined,
+      thumbnailStatus: updated.thumbnailStatus,
+      metadataStatus: updated.metadataStatus,
+      metadataError: updated.metadataError,
+      thumbnailError: updated.thumbnailError
+    }
+  };
+  await saveMetadataCache();
+  return updated;
 }
 
 async function createWindow() {
@@ -442,7 +627,7 @@ app.whenReady().then(async () => {
   ipcMain.handle("scan:cancel", async () => {
     activeScanToken += 1;
     thumbnailQueue = [];
-    sendProgress({ state: "cancelled", found: 0, processed: 0, thumbnailsReady: 0, failures: 0, message: "已取消" });
+    sendProgress({ state: "cancelled", found: 0, processed: 0, thumbnailsReady: 0, failures: 0, message: "已取消", warningCount: 0, warnings: [] });
   });
   ipcMain.handle("video:context-action", async (_event, action: ContextAction, filePath: string) => handleContextAction(action, filePath));
   await createWindow();

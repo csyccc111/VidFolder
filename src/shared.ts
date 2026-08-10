@@ -2,6 +2,27 @@ export type ThumbnailStatus = "pending" | "ready" | "failed";
 export type MetadataStatus = "pending" | "ready" | "failed";
 export type ScanState = "idle" | "scanning" | "complete" | "cancelled" | "error";
 
+/**
+ * 可预期错误的稳定分类（v0.4 新增）。
+ * 用户可见文案与原始技术详情分离：message 面向用户，detail 仅用于诊断。
+ */
+export type ErrorCategory =
+  | "dependency_missing"
+  | "directory_unreadable"
+  | "file_unreadable"
+  | "probe_failed"
+  | "thumbnail_failed"
+  | "cache_invalid"
+  | "unknown";
+
+export type ItemError = {
+  category: ErrorCategory;
+  /** 用户可见的简洁中文说明。 */
+  message: string;
+  /** 原始错误信息（stderr 等），仅用于诊断，默认不直接展示。 */
+  detail?: string;
+};
+
 export type VideoItem = {
   id: string;
   filePath: string;
@@ -16,7 +37,10 @@ export type VideoItem = {
   thumbnailPath?: string;
   thumbnailStatus: ThumbnailStatus;
   metadataStatus: MetadataStatus;
-  error?: string;
+  /** 元信息读取失败详情（与封面失败分离，互不覆盖）。 */
+  metadataError?: ItemError;
+  /** 封面生成失败详情。 */
+  thumbnailError?: ItemError;
 };
 
 export type ScanProgress = {
@@ -27,6 +51,12 @@ export type ScanProgress = {
   thumbnailsReady: number;
   failures: number;
   message?: string;
+  /** 整体扫描错误（如根目录不可读），仅 state 为 error 时有值。 */
+  scanError?: ItemError;
+  /** 被跳过的不可读子目录真实总数。 */
+  warningCount: number;
+  /** 被跳过的不可读子目录路径（仅前若干条，供悬停摘要展示）。 */
+  warnings: string[];
 };
 
 export type AppSettings = {

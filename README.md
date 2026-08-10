@@ -85,21 +85,55 @@ npm run dist:zip
 ## 发布 Release
 
 1. 确认 `package.json` 中的 `version` 是要发布的版本。
-2. 运行：
+2. 完成构建和冒烟测试（清单见 `docs/smoke-test-checklist.md`）。
+3. 运行：
 
    ```bash
    npm run dist:zip
    ```
 
-3. 打开 GitHub Releases 页面：
+   > 如本机构建受环境干扰（删除操作被拦截、electron 解压目录被锁），可使用等价命令：
+   >
+   > ```bash
+   > NODE_OPTIONS="--use-system-ca" npx electron-builder --win zip --config.directories.output=release-v040 --config.electronDist=node_modules/electron/dist
+   > ```
 
-   https://github.com/csyccc111/VidFolder/releases
+4. 记录产物 SHA-256：
 
-4. 创建新 Release，Tag 建议使用 `v版本号`，例如 `v0.1.0`。
-5. 上传 `release/` 目录中的 zip 文件。
-6. 发布 Release。
+   ```bash
+   certutil -hashfile "release/Vid.Folder.Browser-0.4.0-win-x64.zip" SHA256
+   ```
+
+5. 打开 GitHub Releases 页面：https://github.com/csyccc111/VidFolder/releases
+6. 创建新 Release：Tag 使用 `v版本号`（如 `v0.4.0`），标题与资产版本一致。
+7. 上传 `release/` 目录中的 zip（命名格式 `Vid.Folder.Browser-<版本>-win-x64.zip`）。
+8. 发布后以 GitHub API 核验（页面可能有缓存，以 API 为准）：
+
+   ```bash
+   curl -s https://api.github.com/repos/csyccc111/VidFolder/releases/tags/v0.4.0
+   ```
+
+   核对资产名称、大小（字节）与本地一致，下载后比对 SHA-256。
+
+完整步骤见 `docs/release-checklist.md`。
 
 源码仓库只保存代码、配置和文档；安装包、zip、exe 等大文件通过 GitHub Releases 分发。
+
+## 已知限制
+
+- 依赖本机 `ffmpeg` 与 `ffprobe`，不内置、不自动下载。
+- 缓存失效判断基于"路径 + 文件大小 + 修改时间"；**文件内容变化但三者均不变**时可能命中旧缓存，这是当前缓存策略的已知边界（v0.4 明确接受，不引入全文件哈希）。
+- 首次扫描（冷缓存）需要为每个视频执行 ffprobe 和 ffmpeg，耗时与视频数量正相关；二次扫描（热缓存）明显更快。
+- 扫描过程中不可读的子目录会被跳过并提示，根目录不可读会直接报告扫描失败。
+- 缩略图缺失或损坏时会自动重新生成（自愈）。
+- `metadata-cache.json` 损坏时应用自动回退到空缓存，原文件会以 `.corrupt-<时间戳>` 备份在应用数据目录。
+
+## 质量与测试文档
+
+- `docs/performance-benchmark-guide.md`：大目录性能基准测试步骤（500/2000/5000+ 三档）。
+- `docs/cache-validation-record.md`：缓存失效验证场景与记录模板。
+- `docs/smoke-test-checklist.md`：发布前人工冒烟清单。
+- `docs/release-checklist.md`：发布流程清单。
 
 ## 缓存位置
 

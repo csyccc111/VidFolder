@@ -1,8 +1,11 @@
 node_modules
 dist
 dist-electron
-release
+release*/
 *.tsbuildinfo
 PROJECT_MEMORY.md
 *.log
 .DS_Store
+.workbuddy/
+del-result.txt
+proc-check.txt
