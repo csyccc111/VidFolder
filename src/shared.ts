@@ -65,6 +65,34 @@ export type AppSettings = {
   sortKey?: "fileName" | "modifiedAt" | "size" | "duration";
   ascending?: boolean;
   thumbSize?: "small" | "medium" | "large";
+  /** 最近/固定文件夹记录（v0.5 新增）。 */
+  recentFolders?: FolderHistoryEntry[];
+  /** 每个根文件夹的展开节点集合，键为规范化根路径（v0.5 新增）。 */
+  expandedFoldersByRoot?: Record<string, string[]>;
+  /** 左侧栏折叠状态（v0.5 新增）。 */
+  sidebarOpen?: boolean;
+  /** 左侧栏宽度（像素，v0.5 新增）。 */
+  sidebarWidth?: number;
+  /** 右侧详情面板开关状态（v0.5 新增）。 */
+  detailPaneOpen?: boolean;
+};
+
+/** 最近/固定文件夹记录（v0.5 新增）。 */
+export type FolderHistoryEntry = {
+  path: string;
+  lastOpenedAt: number;
+  pinned: boolean;
+};
+
+/** 层级文件夹树节点（v0.5 新增）。 */
+export type FolderTreeNode = {
+  id: string;
+  path: string;
+  name: string;
+  relativePath: string;
+  directVideoCount: number;
+  totalVideoCount: number;
+  children: FolderTreeNode[];
 };
 
 export type ToolStatus = {
@@ -81,6 +109,11 @@ export type DependencyStatus = {
 
 export type ContextAction = "showInFolder" | "openVideo" | "copyPath" | "regenerateThumbnail";
 
+export type FolderValidationResult = {
+  exists: boolean;
+  isDirectory: boolean;
+};
+
 export type IpcEvents = {
   "scan:progress": ScanProgress;
   "scan:item": VideoItem;
@@ -91,9 +124,12 @@ export type ElectronApi = {
   updateSettings: (settings: Partial<AppSettings>) => Promise<AppSettings>;
   getDependencyStatus: () => Promise<DependencyStatus>;
   chooseFolder: () => Promise<string | undefined>;
+  validateFolder: (folderPath: string) => Promise<FolderValidationResult>;
+  showFolderInExplorer: (folderPath: string) => Promise<void>;
   startScan: (folderPath: string) => Promise<void>;
   cancelScan: () => Promise<void>;
   contextAction: (action: ContextAction, filePath: string) => Promise<VideoItem | undefined>;
+  getPathForFile: (file: File) => string;
   onProgress: (callback: (progress: ScanProgress) => void) => () => void;
   onItem: (callback: (item: VideoItem) => void) => () => void;
 };

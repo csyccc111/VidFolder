@@ -4,6 +4,7 @@ import { createHash } from "node:crypto";
 import { promises as fs } from "node:fs";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
+import { sanitizeExpandedFoldersByRoot, sanitizeHistory } from "../src/lib/history.js";
 import type { AppSettings, ContextAction, DependencyStatus, ErrorCategory, ItemError, ScanProgress, ThumbnailStatus, ToolStatus, VideoItem } from "../src/shared.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -178,6 +179,11 @@ async function writeSettings(settings: AppSettings) {
 async function updateSettings(nextSettings: Partial<AppSettings>): Promise<AppSettings> {
   const current = await readSettings();
   const merged = { ...current, ...nextSettings };
+  // v0.5：对历史记录与展开状态做兼容清理（去重、过滤非法、限长），防止 settings.json 无界增长。
+  if (merged.recentFolders !== undefined) merged.recentFolders = sanitizeHistory(merged.recentFolders);
+  if (merged.expandedFoldersByRoot !== undefined) {
+    merged.expandedFoldersByRoot = sanitizeExpandedFoldersByRoot(merged.expandedFoldersByRoot);
+  }
   await writeSettings(merged);
   return merged;
 }
@@ -622,6 +628,17 @@ app.whenReady().then(async () => {
   ipcMain.handle("folder:choose", async () => {
     const result = await dialog.showOpenDialog({ properties: ["openDirectory"] });
     return result.canceled ? undefined : result.filePaths[0];
+  });
+  ipcMain.handle("folder:validate", async (_event, folderPath: string) => {
+    try {
+      const stat = await fs.stat(folderPath);
+      return { exists: true, isDirectory: stat.isDirectory() };
+    } catch {
+      return { exists: false, isDirectory: false };
+    }
+  });
+  ipcMain.handle("folder:show-in-explorer", async (_event, folderPath: string) => {
+    shell.showItemInFolder(folderPath);
   });
   ipcMain.handle("scan:start", async (_event, folderPath: string) => startScan(folderPath));
   ipcMain.handle("scan:cancel", async () => {

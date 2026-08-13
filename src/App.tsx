@@ -1,11 +1,33 @@
-import { useEffect, useMemo, useRef, useState } from "react";
-import type { ContextAction, DependencyStatus, ScanProgress, VideoItem } from "./shared";
-
-type SortKey = "fileName" | "modifiedAt" | "size" | "duration";
-type ThumbSize = "small" | "medium" | "large";
-type ViewMode = "grid" | "list";
-type DurationFilter = "all" | "short" | "medium" | "long";
-type ResolutionFilter = "all" | "landscape" | "portrait" | "square" | "hd" | "fhd" | "uhd";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import type { ContextAction, DependencyStatus, FolderHistoryEntry, FolderTreeNode, ScanProgress, VideoItem } from "@/shared";
+import {
+  DurationFilter,
+  FilterState,
+  ResolutionFilter,
+  SortKey,
+  ThumbSize,
+  ViewMode,
+  filterAndSortItems,
+  isFilterActive
+} from "@/lib/filter";
+import { normalizePath, pathKey, trimTrailingSeparators, getRelativeDirectory } from "@/lib/path";
+import {
+  addHistoryEntry,
+  removeHistoryEntry,
+  sanitizeExpandedFoldersByRoot,
+  sanitizeExpandedKeys,
+  toggleExpandedKey,
+  togglePin
+} from "@/lib/history";
+import { buildFolderTree, collectAncestorKeys, findTreeNode } from "@/lib/tree";
+import { Toolbar } from "@/components/browser/toolbar";
+import { VideoGrid } from "@/components/browser/video-grid";
+import { VideoList } from "@/components/browser/video-list";
+import { EmptyState, EmptyStateKind } from "@/components/browser/empty-state";
+import { DetailPanel } from "@/components/details/detail-panel";
+import { StatusBar } from "@/components/status/status-bar";
+import { ScanNotices } from "@/components/status/scan-notices";
+import { Sidebar, SIDEBAR_DEFAULT_WIDTH, SIDEBAR_MAX_WIDTH, SIDEBAR_MIN_WIDTH } from "@/components/layout/sidebar";
 
 const emptyProgress: ScanProgress = {
   state: "idle",
@@ -17,114 +39,7 @@ const emptyProgress: ScanProgress = {
   warnings: []
 };
 
-const sortLabels: Record<SortKey, string> = {
-  fileName: "文件名",
-  modifiedAt: "修改时间",
-  size: "文件大小",
-  duration: "时长"
-};
-
-const durationLabels: Record<DurationFilter, string> = {
-  all: "全部时长",
-  short: "1 分钟内",
-  medium: "1-20 分钟",
-  long: "20 分钟以上"
-};
-
-const resolutionLabels: Record<ResolutionFilter, string> = {
-  all: "全部画面",
-  landscape: "横屏",
-  portrait: "竖屏",
-  square: "方形",
-  hd: "720p+",
-  fhd: "1080p+",
-  uhd: "4K+"
-};
-
-const sortableListColumns: Array<{ key: SortKey; label: string }> = [
-  { key: "fileName", label: "文件名" },
-  { key: "duration", label: "时长" },
-  { key: "size", label: "大小" },
-  { key: "modifiedAt", label: "修改时间" }
-];
-
-function formatBytes(bytes: number) {
-  if (!Number.isFinite(bytes) || bytes <= 0) return "0 B";
-  const units = ["B", "KB", "MB", "GB", "TB"];
-  const power = Math.min(Math.floor(Math.log(bytes) / Math.log(1024)), units.length - 1);
-  return `${(bytes / 1024 ** power).toFixed(power === 0 ? 0 : 1)} ${units[power]}`;
-}
-
-function formatDuration(seconds?: number) {
-  if (!seconds || !Number.isFinite(seconds)) return "--:--";
-  const total = Math.max(0, Math.round(seconds));
-  const hours = Math.floor(total / 3600);
-  const minutes = Math.floor((total % 3600) / 60);
-  const secs = total % 60;
-  if (hours > 0) return `${hours}:${String(minutes).padStart(2, "0")}:${String(secs).padStart(2, "0")}`;
-  return `${minutes}:${String(secs).padStart(2, "0")}`;
-}
-
-function formatDate(timestamp: number) {
-  return new Intl.DateTimeFormat("zh-CN", {
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-    hour: "2-digit",
-    minute: "2-digit"
-  }).format(new Date(timestamp));
-}
-
-function compareItems(a: VideoItem, b: VideoItem, key: SortKey) {
-  if (key === "fileName") return a.fileName.localeCompare(b.fileName, "zh-CN", { numeric: true });
-  return (a[key] ?? 0) - (b[key] ?? 0);
-}
-
-function normalizePath(value: string) {
-  return value.replaceAll("\\", "/").replace(/\/+$/, "").toLocaleLowerCase();
-}
-
-function getRelativeDirectory(rootPath: string, directory: string) {
-  const normalizedRoot = normalizePath(rootPath);
-  const normalizedDirectory = normalizePath(directory);
-  if (!normalizedRoot || normalizedDirectory === normalizedRoot) return ".";
-  if (normalizedDirectory.startsWith(`${normalizedRoot}/`)) {
-    return directory.slice(rootPath.replace(/[/\\]+$/, "").length + 1).replaceAll("\\", "/");
-  }
-  return directory.replaceAll("\\", "/");
-}
-
-function getDirectoryName(relativePath: string) {
-  if (relativePath === ".") return "全部视频";
-  const parts = relativePath.split("/").filter(Boolean);
-  return parts.at(-1) ?? relativePath;
-}
-
-function isWithinDirectory(itemDirectory: string, selectedDirectory: string) {
-  if (!selectedDirectory) return true;
-  const itemPath = normalizePath(itemDirectory);
-  const selectedPath = normalizePath(selectedDirectory);
-  return itemPath === selectedPath || itemPath.startsWith(`${selectedPath}/`);
-}
-
-function matchesDurationFilter(duration: number | undefined, filter: DurationFilter) {
-  if (filter === "all") return true;
-  if (!duration || !Number.isFinite(duration)) return false;
-  if (filter === "short") return duration < 60;
-  if (filter === "medium") return duration >= 60 && duration <= 20 * 60;
-  return duration > 20 * 60;
-}
-
-function matchesResolutionFilter(item: VideoItem, filter: ResolutionFilter) {
-  if (filter === "all") return true;
-  if (!item.width || !item.height) return false;
-  if (filter === "landscape") return item.width > item.height;
-  if (filter === "portrait") return item.height > item.width;
-  if (filter === "square") return item.width === item.height;
-  if (filter === "hd") return item.width >= 1280 || item.height >= 720;
-  if (filter === "fhd") return item.width >= 1920 || item.height >= 1080;
-  return item.width >= 3840 || item.height >= 2160;
-}
+const NARROW_WINDOW_WIDTH = 1100;
 
 export default function App() {
   const [folderPath, setFolderPath] = useState("");
@@ -140,12 +55,36 @@ export default function App() {
   const [durationFilter, setDurationFilter] = useState<DurationFilter>("all");
   const [resolutionFilter, setResolutionFilter] = useState<ResolutionFilter>("all");
   const [selectedId, setSelectedId] = useState<string>();
-  const [menu, setMenu] = useState<{ x: number; y: number; item: VideoItem }>();
   const [notice, setNotice] = useState("");
   const [bridgeReady, setBridgeReady] = useState(true);
   const [dependencyStatus, setDependencyStatus] = useState<DependencyStatus>();
+  const [recentFolders, setRecentFolders] = useState<FolderHistoryEntry[]>([]);
+  const [invalidPaths, setInvalidPaths] = useState<Set<string>>(new Set());
+  const [expandedByRoot, setExpandedByRoot] = useState<Record<string, string[]>>({});
+  const [revealRequest, setRevealRequest] = useState<{ key: string; nonce: number }>();
+  const [sidebarOpen, setSidebarOpen] = useState(true);
+  const [sidebarWidth, setSidebarWidth] = useState(SIDEBAR_DEFAULT_WIDTH);
+  const [detailPaneOpen, setDetailPaneOpen] = useState(true);
+  const [detailSheetOpen, setDetailSheetOpen] = useState(false);
+  const [isNarrow, setIsNarrow] = useState(() => window.innerWidth < NARROW_WINDOW_WIDTH);
+  const [dragState, setDragState] = useState<"folder" | "invalid">();
+
   const initialized = useRef(false);
   const settingsLoaded = useRef(false);
+  const dragDepth = useRef(0);
+  const noticeTimer = useRef<number | undefined>(undefined);
+
+  const rootKey = useMemo(() => (folderPath ? pathKey(folderPath) : ""), [folderPath]);
+  const expandedKeys = useMemo(
+    () => (rootKey ? expandedByRoot[rootKey] ?? [rootKey] : []),
+    [expandedByRoot, rootKey]
+  );
+
+  useEffect(() => {
+    const onResize = () => setIsNarrow(window.innerWidth < NARROW_WINDOW_WIDTH);
+    window.addEventListener("resize", onResize);
+    return () => window.removeEventListener("resize", onResize);
+  }, []);
 
   useEffect(() => {
     if (!window.videoBrowser) {
@@ -155,6 +94,10 @@ export default function App() {
     const disposeProgress = window.videoBrowser.onProgress((next) => {
       setProgress(next);
       if (next.rootPath) setFolderPath(next.rootPath);
+      if (next.state === "complete") {
+        // 扫描成功才写入最近记录；对话框取消、扫描失败不写。
+        if (next.rootPath) recordSuccessfulOpen(next.rootPath);
+      }
     });
     const disposeItem = window.videoBrowser.onItem((next) => {
       setItems((current) => {
@@ -172,6 +115,13 @@ export default function App() {
         if (settings.sortKey) setSortKey(settings.sortKey);
         if (typeof settings.ascending === "boolean") setAscending(settings.ascending);
         if (settings.thumbSize) setThumbSize(settings.thumbSize);
+        if (typeof settings.sidebarOpen === "boolean") setSidebarOpen(settings.sidebarOpen);
+        if (typeof settings.sidebarWidth === "number" && settings.sidebarWidth > 0) {
+          setSidebarWidth(Math.min(Math.max(settings.sidebarWidth, SIDEBAR_MIN_WIDTH), SIDEBAR_MAX_WIDTH));
+        }
+        if (typeof settings.detailPaneOpen === "boolean") setDetailPaneOpen(settings.detailPaneOpen);
+        setRecentFolders(settings.recentFolders ?? []);
+        setExpandedByRoot(sanitizeExpandedFoldersByRoot(settings.expandedFoldersByRoot));
         settingsLoaded.current = true;
         if (settings.lastFolder) {
           setFolderPath(settings.lastFolder);
@@ -184,8 +134,10 @@ export default function App() {
       disposeProgress();
       disposeItem();
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  // 界面偏好 + 布局状态节流写入 settings。
   useEffect(() => {
     if (!bridgeReady || !settingsLoaded.current || !window.videoBrowser) return;
     const timer = window.setTimeout(() => {
@@ -193,21 +145,66 @@ export default function App() {
         viewMode,
         sortKey,
         ascending,
-        thumbSize
+        thumbSize,
+        sidebarOpen,
+        sidebarWidth,
+        detailPaneOpen,
+        expandedFoldersByRoot: expandedByRoot
       });
     }, 250);
     return () => window.clearTimeout(timer);
-  }, [bridgeReady, viewMode, sortKey, ascending, thumbSize]);
+  }, [
+    bridgeReady,
+    viewMode,
+    sortKey,
+    ascending,
+    thumbSize,
+    sidebarOpen,
+    sidebarWidth,
+    detailPaneOpen,
+    expandedByRoot
+  ]);
+
+  // 最近记录加载后校验路径有效性（异步、低干扰）。
+  useEffect(() => {
+    if (!bridgeReady || !window.videoBrowser) return;
+    let cancelled = false;
+    const validate = async () => {
+      const invalid = new Set<string>();
+      for (const entry of recentFolders) {
+        if (cancelled) return;
+        const result = await window.videoBrowser!.validateFolder(entry.path);
+        if (!result.exists || !result.isDirectory) invalid.add(entry.path);
+      }
+      if (!cancelled) setInvalidPaths(invalid);
+    };
+    void validate();
+    return () => {
+      cancelled = true;
+    };
+  }, [recentFolders, bridgeReady]);
 
   useEffect(() => {
-    const closeMenu = () => setMenu(undefined);
-    window.addEventListener("click", closeMenu);
-    window.addEventListener("blur", closeMenu);
     return () => {
-      window.removeEventListener("click", closeMenu);
-      window.removeEventListener("blur", closeMenu);
+      if (noticeTimer.current) window.clearTimeout(noticeTimer.current);
     };
   }, []);
+
+  function showNotice(message: string) {
+    setNotice(message);
+    if (noticeTimer.current) window.clearTimeout(noticeTimer.current);
+    noticeTimer.current = window.setTimeout(() => setNotice(""), 1800);
+  }
+
+  async function recordSuccessfulOpen(path: string) {
+    if (!window.videoBrowser) return;
+    setRecentFolders((current) => {
+      const next = addHistoryEntry(current, { path, lastOpenedAt: Date.now(), pinned: false });
+      // 成功打开记录即时落盘，避免应用退出时丢失。
+      void window.videoBrowser!.updateSettings({ recentFolders: next });
+      return next;
+    });
+  }
 
   async function startScan(path: string) {
     if (!window.videoBrowser) {
@@ -217,6 +214,7 @@ export default function App() {
     setItems([]);
     setSelectedId(undefined);
     setSelectedDirectory("");
+    setRevealRequest(undefined);
     setProgress({ ...emptyProgress, state: "scanning", rootPath: path, message: "正在扫描" });
     await window.videoBrowser.startScan(path);
   }
@@ -233,70 +231,135 @@ export default function App() {
     }
   }
 
-  async function runContextAction(action: ContextAction, item: VideoItem) {
+  async function openFolderFromHistory(path: string) {
     if (!window.videoBrowser) {
       setBridgeReady(false);
       return;
     }
-    const updated = await window.videoBrowser.contextAction(action, item.filePath);
-    setMenu(undefined);
-    if (updated) {
-      setItems((current) => current.map((entry) => (entry.id === updated.id ? updated : entry)));
-      if (action === "regenerateThumbnail") {
-        setNotice(updated.thumbnailStatus === "ready" ? "封面已重新生成" : "封面重新生成失败，请查看详情面板");
-      }
-    } else if (action === "copyPath") {
-      setNotice("路径已复制");
+    const result = await window.videoBrowser.validateFolder(path);
+    if (!result.exists || !result.isDirectory) {
+      showNotice("该文件夹路径已失效，无法打开");
+      return;
     }
-    window.setTimeout(() => setNotice(""), 1800);
+    setFolderPath(path);
+    await startScan(path);
   }
 
+  async function openDroppedFile(file: File) {
+    if (!window.videoBrowser) {
+      setBridgeReady(false);
+      return;
+    }
+    const path = window.videoBrowser.getPathForFile(file);
+    if (!path) {
+      showNotice("无法读取拖入的路径");
+      return;
+    }
+    const result = await window.videoBrowser.validateFolder(path);
+    if (!result.exists || !result.isDirectory) {
+      showNotice("请拖入文件夹而不是单个文件");
+      return;
+    }
+    setFolderPath(path);
+    await startScan(path);
+  }
+
+  // 窗口级拖入文件夹（仅接受单个目录）。
+  useEffect(() => {
+    const onDragEnter = (event: DragEvent) => {
+      event.preventDefault();
+      dragDepth.current += 1;
+      updateDragState(event);
+    };
+    const onDragOver = (event: DragEvent) => {
+      event.preventDefault();
+      updateDragState(event);
+    };
+    const onDragLeave = (event: DragEvent) => {
+      event.preventDefault();
+      dragDepth.current = Math.max(0, dragDepth.current - 1);
+      if (dragDepth.current === 0) setDragState(undefined);
+    };
+    const onDrop = (event: DragEvent) => {
+      event.preventDefault();
+      dragDepth.current = 0;
+      setDragState(undefined);
+      const file = event.dataTransfer?.files?.[0];
+      if (!file) return;
+      void openDroppedFile(file);
+    };
+    const updateDragState = (event: DragEvent) => {
+      const items = event.dataTransfer?.items ?? [];
+      if (items.length !== 1 || items[0].kind !== "file") {
+        setDragState("invalid");
+        return;
+      }
+      setDragState("folder");
+    };
+    window.addEventListener("dragenter", onDragEnter);
+    window.addEventListener("dragover", onDragOver);
+    window.addEventListener("dragleave", onDragLeave);
+    window.addEventListener("drop", onDrop);
+    return () => {
+      window.removeEventListener("dragenter", onDragEnter);
+      window.removeEventListener("dragover", onDragOver);
+      window.removeEventListener("dragleave", onDragLeave);
+      window.removeEventListener("drop", onDrop);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   const directories = useMemo(() => {
-    const root = folderPath.replace(/[/\\]+$/, "");
-    const directoryCounts = new Map<string, { path: string; count: number; relativePath: string }>();
+    const root = trimTrailingSeparators(folderPath);
+    const directoryCounts = new Map<string, { path: string; relativePath: string; count: number }>();
     for (const item of items) {
+      if (!root) continue;
       const relativePath = getRelativeDirectory(root, item.directory);
       if (relativePath === ".") continue;
       const parts = relativePath.split("/").filter(Boolean);
       for (let index = 0; index < parts.length; index += 1) {
         const ancestorRelativePath = parts.slice(0, index + 1).join("/");
         const ancestorPath = `${root}\\${ancestorRelativePath.replaceAll("/", "\\")}`;
-        const existing = directoryCounts.get(ancestorPath);
-        directoryCounts.set(ancestorPath, {
+        const key = normalizePath(ancestorPath);
+        const existing = directoryCounts.get(key);
+        directoryCounts.set(key, {
           path: ancestorPath,
           relativePath: ancestorRelativePath,
           count: (existing?.count ?? 0) + 1
         });
       }
     }
-    return [...directoryCounts.values()]
-      .filter((directory) => directory.relativePath !== ".")
-      .sort((a, b) => a.relativePath.localeCompare(b.relativePath, "zh-CN", { numeric: true }));
+    return [...directoryCounts.values()];
   }, [folderPath, items]);
 
+  const treeRoot = useMemo(() => buildFolderTree(folderPath, directories), [folderPath, directories]);
+
   const extensionOptions = useMemo(() => {
-    return [...new Set(items.map((item) => item.extension).filter(Boolean))]
-      .sort((a, b) => a.localeCompare(b, "zh-CN", { numeric: true }));
+    return [...new Set(items.map((item) => item.extension).filter(Boolean))].sort((a, b) =>
+      a.localeCompare(b, "zh-CN", { numeric: true })
+    );
   }, [items]);
 
-  const filteredItems = useMemo(() => {
-    const keyword = query.trim().toLocaleLowerCase();
-    return items
-      .filter((item) => (keyword ? item.fileName.toLocaleLowerCase().includes(keyword) : true))
-      .filter((item) => (selectedDirectory ? isWithinDirectory(item.directory, selectedDirectory) : true))
-      .filter((item) => (extensionFilter === "all" ? true : item.extension === extensionFilter))
-      .filter((item) => matchesDurationFilter(item.duration, durationFilter))
-      .filter((item) => matchesResolutionFilter(item, resolutionFilter))
-      .sort((a, b) => (ascending ? 1 : -1) * compareItems(a, b, sortKey));
-  }, [items, query, selectedDirectory, extensionFilter, durationFilter, resolutionFilter, sortKey, ascending]);
+  const filterState: FilterState = useMemo(
+    () => ({ query, selectedDirectory, extensionFilter, durationFilter, resolutionFilter }),
+    [query, selectedDirectory, extensionFilter, durationFilter, resolutionFilter]
+  );
+
+  const activeFilterCount = useMemo(() => {
+    let count = 0;
+    if (extensionFilter !== "all") count += 1;
+    if (durationFilter !== "all") count += 1;
+    if (resolutionFilter !== "all") count += 1;
+    return count;
+  }, [extensionFilter, durationFilter, resolutionFilter]);
+
+  const filteredItems = useMemo(
+    () => filterAndSortItems(items, filterState, sortKey, ascending),
+    [items, filterState, sortKey, ascending]
+  );
 
   const selectedItem = items.find((item) => item.id === selectedId);
-  const gridClass = `video-grid ${thumbSize}`;
   const isScanning = progress.state === "scanning";
-  const missingTools = [
-    dependencyStatus?.ffmpeg.available === false ? "ffmpeg" : undefined,
-    dependencyStatus?.ffprobe.available === false ? "ffprobe" : undefined
-  ].filter(Boolean);
 
   function changeListSort(nextKey: SortKey) {
     if (sortKey === nextKey) {
@@ -307,314 +370,266 @@ export default function App() {
     }
   }
 
-  function sortIndicator(key: SortKey) {
-    if (sortKey !== key) return "";
-    return ascending ? " ↑" : " ↓";
+  function clearAllFilters() {
+    setQuery("");
+    setSelectedDirectory("");
+    setExtensionFilter("all");
+    setDurationFilter("all");
+    setResolutionFilter("all");
   }
 
+  async function runContextAction(action: ContextAction, item: VideoItem) {
+    if (!window.videoBrowser) {
+      setBridgeReady(false);
+      return;
+    }
+    const updated = await window.videoBrowser.contextAction(action, item.filePath);
+    if (updated) {
+      setItems((current) => current.map((entry) => (entry.id === updated.id ? updated : entry)));
+      if (action === "regenerateThumbnail") {
+        showNotice(updated.thumbnailStatus === "ready" ? "封面已重新生成" : "封面重新生成失败，请查看详情面板");
+      }
+    } else if (action === "copyPath") {
+      showNotice("路径已复制");
+    }
+  }
+
+  function handleToggleExpand(key: string) {
+    if (!rootKey) return;
+    setExpandedByRoot((current) => {
+      const currentKeys = current[rootKey] ?? [rootKey];
+      return { ...current, [rootKey]: toggleExpandedKey(currentKeys, key) };
+    });
+  }
+
+  function handleSelectDirectory(node: FolderTreeNode) {
+    setSelectedDirectory(node.path);
+    if (!treeRoot) return;
+    const ancestors = collectAncestorKeys(treeRoot, node.path);
+    setExpandedByRoot((current) => {
+      const currentKeys = current[rootKey] ?? [rootKey];
+      return { ...current, [rootKey]: [...new Set([...currentKeys, ...ancestors])] };
+    });
+  }
+
+  function handleCollapseAll() {
+    if (!rootKey) return;
+    setExpandedByRoot((current) => ({ ...current, [rootKey]: [rootKey] }));
+    setRevealRequest(undefined);
+  }
+
+  function handleRevealInTree(item: VideoItem) {
+    setSelectedDirectory(item.directory);
+    if (treeRoot) {
+      const node = findTreeNode(treeRoot, item.directory);
+      if (node) {
+        const ancestors = collectAncestorKeys(treeRoot, node.id);
+        setExpandedByRoot((current) => ({
+          ...current,
+          [rootKey]: [...new Set([...current[rootKey] ?? [rootKey], ...ancestors])]
+        }));
+      }
+    }
+    const key = pathKey(item.directory);
+    setRevealRequest({ key, nonce: Date.now() });
+  }
+
+  function handleTogglePin(path: string) {
+    setRecentFolders((current) => {
+      const next = togglePin(current, path);
+      void window.videoBrowser!.updateSettings({ recentFolders: next });
+      return next;
+    });
+  }
+
+  function handleRemoveHistory(path: string) {
+    setRecentFolders((current) => {
+      const next = removeHistoryEntry(current, path);
+      void window.videoBrowser!.updateSettings({ recentFolders: next });
+      return next;
+    });
+    setInvalidPaths((current) => {
+      const next = new Set(current);
+      next.delete(path);
+      return next;
+    });
+  }
+
+  function handleVideoKeyDown(event: React.KeyboardEvent) {
+    const target = event.target as HTMLElement | null;
+    if (target && (target.tagName === "INPUT" || target.tagName === "TEXTAREA" || target.tagName === "SELECT" || target.isContentEditable)) {
+      return;
+    }
+    if (event.key === "Enter" && selectedItem) {
+      event.preventDefault();
+      void runContextAction("openVideo", selectedItem);
+    } else if (event.key.toLowerCase() === "c" && (event.ctrlKey || event.metaKey) && selectedItem) {
+      event.preventDefault();
+      void runContextAction("copyPath", selectedItem);
+    }
+  }
+
+  function handleToggleDetail() {
+    if (isNarrow) {
+      setDetailSheetOpen((value) => !value);
+    } else {
+      setDetailPaneOpen((value) => !value);
+    }
+  }
+
+  function emptyStateKind(): EmptyStateKind {
+    if (!bridgeReady) return "no-bridge";
+    if (!folderPath) return "no-folder";
+    if (items.length === 0) {
+      if (progress.state === "cancelled") return "cancelled";
+      if (progress.state === "error") return "error";
+      if (isScanning) return "scanning";
+      return "no-videos";
+    }
+    return "no-match";
+  }
+
+  const revealKey = revealRequest?.key;
+  const revealSignature = revealRequest ? `${revealRequest.key}#${revealRequest.nonce}` : undefined;
+
   return (
-    <div className="app-shell">
-      <header className="toolbar">
-        <div className="toolbar-row">
-          <div className="primary-actions">
-            <button className="button primary" onClick={chooseFolder}>选择文件夹</button>
-            <button className="button" disabled={!folderPath || isScanning} onClick={() => void startScan(folderPath)}>刷新</button>
-          </div>
-          <input
-            className="search"
-            value={query}
-            onChange={(event) => setQuery(event.target.value)}
-            placeholder="搜索文件名"
-          />
-          <select className="select" value={sortKey} onChange={(event) => setSortKey(event.target.value as SortKey)}>
-            {Object.entries(sortLabels).map(([value, label]) => (
-              <option key={value} value={value}>{label}</option>
-            ))}
-          </select>
-          <button className="icon-button" title={ascending ? "升序" : "降序"} onClick={() => setAscending((value) => !value)}>
-            {ascending ? "↑" : "↓"}
-          </button>
-          <div className="segmented" aria-label="视图模式">
-            <button className={viewMode === "grid" ? "active" : ""} title="网格视图" onClick={() => setViewMode("grid")}>网格</button>
-            <button className={viewMode === "list" ? "active" : ""} title="列表视图" onClick={() => setViewMode("list")}>列表</button>
-          </div>
-          <div className="segmented" aria-label="缩略图大小">
-            {(["small", "medium", "large"] as const).map((size) => (
-              <button
-                key={size}
-                className={thumbSize === size ? "active" : ""}
-                title={`缩略图${size === "small" ? "小" : size === "medium" ? "中" : "大"}`}
-                onClick={() => setThumbSize(size)}
-                disabled={viewMode === "list"}
-              >
-                {size === "small" ? "小" : size === "medium" ? "中" : "大"}
-              </button>
-            ))}
-          </div>
-        </div>
-        <div className="toolbar-row filter-row">
-          <select className="select" value={extensionFilter} onChange={(event) => setExtensionFilter(event.target.value)}>
-            <option value="all">全部格式</option>
-            {extensionOptions.map((extension) => (
-              <option key={extension} value={extension}>{extension.replace(".", "").toUpperCase()}</option>
-            ))}
-          </select>
-          <select className="select" value={durationFilter} onChange={(event) => setDurationFilter(event.target.value as DurationFilter)}>
-            {Object.entries(durationLabels).map(([value, label]) => (
-              <option key={value} value={value}>{label}</option>
-            ))}
-          </select>
-          <select className="select" value={resolutionFilter} onChange={(event) => setResolutionFilter(event.target.value as ResolutionFilter)}>
-            {Object.entries(resolutionLabels).map(([value, label]) => (
-              <option key={value} value={value}>{label}</option>
-            ))}
-          </select>
-          <button
-            className="button subtle"
-            disabled={!query && !selectedDirectory && extensionFilter === "all" && durationFilter === "all" && resolutionFilter === "all"}
-            onClick={() => {
-              setQuery("");
-              setSelectedDirectory("");
-              setExtensionFilter("all");
-              setDurationFilter("all");
-              setResolutionFilter("all");
-            }}
-          >
-            清除筛选
-          </button>
-        </div>
-        {dependencyStatus && missingTools.length > 0 && (
-          <div className="dependency-alert">
-            缺少 {missingTools.join("、")}。已有缓存仍可浏览，但新视频的封面或时长/分辨率可能无法生成。
-          </div>
-        )}
-        {progress.state === "error" && progress.scanError && (
-          <div className="scan-error-banner" title={progress.scanError.detail}>
-            扫描失败：{progress.scanError.message}（悬停查看技术详情）
-          </div>
-        )}
-        {progress.warningCount > 0 && (
-          <div
-            className="scan-warning-banner"
-            title={progress.warnings.length > 0 ? progress.warnings.join("\n") : "无法获取完整路径列表"}
-          >
-            扫描期间有 {progress.warningCount} 个文件夹无法访问，已跳过；其它视频不受影响。
-          </div>
-        )}
-      </header>
+    <div
+      className="flex h-screen flex-col overflow-hidden bg-background text-foreground"
+      onKeyDown={handleVideoKeyDown}
+    >
+      <Toolbar
+        disabled={!folderPath}
+        isScanning={isScanning}
+        query={query}
+        onQueryChange={setQuery}
+        sortKey={sortKey}
+        onSortKeyChange={setSortKey}
+        ascending={ascending}
+        onToggleAscending={() => setAscending((value) => !value)}
+        viewMode={viewMode}
+        onViewModeChange={setViewMode}
+        thumbSize={thumbSize}
+        onThumbSizeChange={setThumbSize}
+        extensionOptions={extensionOptions}
+        extensionFilter={extensionFilter}
+        onExtensionFilterChange={setExtensionFilter}
+        durationFilter={durationFilter}
+        onDurationFilterChange={setDurationFilter}
+        resolutionFilter={resolutionFilter}
+        onResolutionFilterChange={setResolutionFilter}
+        activeFilterCount={activeFilterCount}
+        onClearFilters={clearAllFilters}
+        onChooseFolder={() => void chooseFolder()}
+        onRefresh={() => void startScan(folderPath)}
+        detailOpen={isNarrow ? detailSheetOpen : detailPaneOpen}
+        onToggleDetail={handleToggleDetail}
+      />
 
-      <main className="content">
-        <aside className="folder-pane">
-          <div className="pane-title">文件夹</div>
-          <button
-            className={`folder-item root ${selectedDirectory ? "" : "active"}`}
-            disabled={!folderPath}
-            onClick={() => setSelectedDirectory("")}
-            title={folderPath || "未选择文件夹"}
-          >
-            <span className="folder-name">全部视频</span>
-            <span className="folder-count">{items.length}</span>
-          </button>
-          <div className="folder-list">
-            {directories.map((directory) => {
-              const depth = directory.relativePath === "." ? 0 : directory.relativePath.split("/").length - 1;
-              return (
-                <button
-                  key={directory.path}
-                  className={`folder-item ${selectedDirectory === directory.path ? "active" : ""}`}
-                  style={{ paddingLeft: 12 + depth * 14 }}
-                  onClick={() => setSelectedDirectory(directory.path)}
-                  title={directory.relativePath === "." ? folderPath : directory.relativePath}
-                >
-                  <span className="folder-name">{getDirectoryName(directory.relativePath)}</span>
-                  <span className="folder-count" title="包含子文件夹的视频数">{directory.count}</span>
-                </button>
-              );
-            })}
-          </div>
-        </aside>
+      <ScanNotices dependencyStatus={dependencyStatus} progress={progress} />
 
-        <section className="browser-pane">
-          {!bridgeReady && (
-            <div className="empty-state">
-              <h1>Electron 桥接未加载</h1>
-              <p>请重新运行开发服务；如果仍出现此提示，preload 没有被 Electron 正确加载。</p>
-            </div>
-          )}
+      <div className="flex min-h-0 flex-1">
+        <Sidebar
+          open={sidebarOpen}
+          width={sidebarWidth}
+          history={recentFolders}
+          invalidPaths={invalidPaths}
+          currentPath={folderPath}
+          treeRoot={treeRoot}
+          selectedDirectory={selectedDirectory}
+          expandedKeys={expandedKeys}
+          revealKey={revealSignature}
+          onToggleSidebar={() => setSidebarOpen((value) => !value)}
+          onResizeWidth={setSidebarWidth}
+          onOpenHistory={(path) => void openFolderFromHistory(path)}
+          onTogglePin={handleTogglePin}
+          onRemoveHistory={handleRemoveHistory}
+          onToggleExpand={handleToggleExpand}
+          onSelectDirectory={handleSelectDirectory}
+          onCollapseAll={handleCollapseAll}
+          onOpenInExplorer={(path) => void window.videoBrowser?.showFolderInExplorer(path)}
+        />
 
-          {bridgeReady && !folderPath && (
-            <div className="empty-state">
-              <h1>选择一个视频文件夹</h1>
-              <p>递归扫描本地视频文件，生成封面并缓存基础信息。</p>
-              <button className="button primary" onClick={chooseFolder}>选择文件夹</button>
-            </div>
-          )}
-
+        <main className="relative min-w-0 flex-1 overflow-auto" role="main">
+          {isNarrow ? (
+            <DetailPanel
+              item={selectedItem}
+              rootPath={folderPath}
+              open={detailPaneOpen}
+              onToggleOpen={() => setDetailPaneOpen((value) => !value)}
+              onRevealInTree={handleRevealInTree}
+              variant="sheet"
+              sheetOpen={detailSheetOpen}
+              onSheetOpenChange={setDetailSheetOpen}
+            />
+          ) : null}
+          {!bridgeReady && <EmptyState kind="no-bridge" />}
+          {bridgeReady && !folderPath && <EmptyState kind="no-folder" onChooseFolder={() => void chooseFolder()} />}
           {bridgeReady && folderPath && items.length === 0 && (
-            <div className="empty-state">
-              {progress.state === "cancelled" ? (
-                <>
-                  <h1>扫描已取消</h1>
-                  <p>本次扫描已停止，可点击"刷新"重新扫描。</p>
-                </>
-              ) : progress.state === "error" ? (
-                <>
-                  <h1>扫描失败</h1>
-                  <p>{progress.scanError?.message ?? "发生未知错误"}（悬停顶部红色提示查看技术详情）</p>
-                </>
-              ) : isScanning ? (
-                <>
-                  <h1>正在扫描</h1>
-                  <p>发现的视频会立即出现在这里。</p>
-                </>
-              ) : (
-                <>
-                  <h1>没有找到视频</h1>
-                  <p>当前文件夹及子文件夹中没有支持的视频格式。</p>
-                </>
-              )}
-            </div>
+            <EmptyState kind={emptyStateKind()} scanErrorDetail={progress.scanError?.detail} />
           )}
-
-          {bridgeReady && items.length > 0 && filteredItems.length === 0 && (
-            <div className="empty-state">
-              <h1>没有匹配结果</h1>
-              <p>换一个关键词、文件夹或筛选条件试试。</p>
-            </div>
-          )}
-
+          {bridgeReady && items.length > 0 && filteredItems.length === 0 && <EmptyState kind="no-match" />}
           {bridgeReady && filteredItems.length > 0 && viewMode === "grid" && (
-            <div className={gridClass}>
-              {filteredItems.map((item) => (
-                <article
-                  key={item.id}
-                  className={`video-card ${selectedId === item.id ? "selected" : ""}`}
-                  onClick={() => setSelectedId(item.id)}
-                  onContextMenu={(event) => {
-                    event.preventDefault();
-                    setSelectedId(item.id);
-                    setMenu({ x: event.clientX, y: event.clientY, item });
-                  }}
-                >
-                  <div className="thumb">
-                    {item.thumbnailPath && item.thumbnailStatus === "ready" ? (
-                      <img src={item.thumbnailPath} alt="" loading="lazy" />
-                    ) : (
-                      <div className="thumb-placeholder">
-                        <span>{item.thumbnailStatus === "failed" ? "封面失败" : "生成中"}</span>
-                      </div>
-                    )}
-                    <span className="duration">{formatDuration(item.duration)}</span>
-                  </div>
-                  <div className="card-body">
-                    <div className="file-name" title={item.fileName}>{item.fileName}</div>
-                    <div className="meta-line">
-                      <span>{formatBytes(item.size)}</span>
-                      <span>{formatDate(item.modifiedAt)}</span>
-                    </div>
-                  </div>
-                </article>
-              ))}
-            </div>
+            <VideoGrid
+              items={filteredItems}
+              selectedId={selectedId}
+              thumbSize={thumbSize}
+              onSelect={setSelectedId}
+              onOpenItem={(item) => void runContextAction("openVideo", item)}
+              onShowInFolder={(item) => void runContextAction("showInFolder", item)}
+              onCopyPath={(item) => void runContextAction("copyPath", item)}
+              onRegenerateThumbnail={(item) => void runContextAction("regenerateThumbnail", item)}
+            />
           )}
-
           {bridgeReady && filteredItems.length > 0 && viewMode === "list" && (
-            <div className="video-list" role="table" aria-label="视频列表">
-              <div className="video-list-header" role="row">
-                {sortableListColumns.slice(0, 3).map((column) => (
-                  <button key={column.key} className="list-sort-button" onClick={() => changeListSort(column.key)}>
-                    {column.label}{sortIndicator(column.key)}
-                  </button>
-                ))}
-                <span>分辨率</span>
-                <button className="list-sort-button" onClick={() => changeListSort("modifiedAt")}>
-                  修改时间{sortIndicator("modifiedAt")}
-                </button>
-                <span>所在文件夹</span>
-              </div>
-              {filteredItems.map((item) => (
-                <button
-                  key={item.id}
-                  className={`video-row ${selectedId === item.id ? "selected" : ""}`}
-                  onClick={() => setSelectedId(item.id)}
-                  onContextMenu={(event) => {
-                    event.preventDefault();
-                    setSelectedId(item.id);
-                    setMenu({ x: event.clientX, y: event.clientY, item });
-                  }}
-                  title={item.filePath}
-                >
-                  <span className="row-name">{item.fileName}</span>
-                  <span>{formatDuration(item.duration)}</span>
-                  <span>{formatBytes(item.size)}</span>
-                  <span>{item.width && item.height ? `${item.width} × ${item.height}` : "未读取"}</span>
-                  <span>{formatDate(item.modifiedAt)}</span>
-                  <span>{getRelativeDirectory(folderPath, item.directory)}</span>
-                </button>
-              ))}
-            </div>
+            <VideoList
+              items={filteredItems}
+              selectedId={selectedId}
+              rootPath={folderPath}
+              sortKey={sortKey}
+              ascending={ascending}
+              onSelect={setSelectedId}
+              onChangeSort={changeListSort}
+              onOpenItem={(item) => void runContextAction("openVideo", item)}
+              onShowInFolder={(item) => void runContextAction("showInFolder", item)}
+              onCopyPath={(item) => void runContextAction("copyPath", item)}
+              onRegenerateThumbnail={(item) => void runContextAction("regenerateThumbnail", item)}
+            />
           )}
-        </section>
+        </main>
 
-        <aside className="detail-pane">
-          <h2>详情</h2>
-          {selectedItem ? (
-            <dl>
-              <dt>文件名</dt>
-              <dd title={selectedItem.fileName}>{selectedItem.fileName}</dd>
-              <dt>完整路径</dt>
-              <dd title={selectedItem.filePath}>{selectedItem.filePath}</dd>
-              <dt>所在文件夹</dt>
-              <dd title={selectedItem.directory}>{selectedItem.directory}</dd>
-              <dt>大小</dt>
-              <dd>{formatBytes(selectedItem.size)}</dd>
-              <dt>时长</dt>
-              <dd>{formatDuration(selectedItem.duration)}</dd>
-              <dt>修改时间</dt>
-              <dd>{formatDate(selectedItem.modifiedAt)}</dd>
-              <dt>分辨率</dt>
-              <dd>{selectedItem.width && selectedItem.height ? `${selectedItem.width} × ${selectedItem.height}` : "未读取"}</dd>
-              {selectedItem.metadataError && (
-                <>
-                  <dt>元信息错误</dt>
-                  <dd className="error-text" title={selectedItem.metadataError.detail ?? selectedItem.metadataError.message}>
-                    {selectedItem.metadataError.message}
-                  </dd>
-                </>
-              )}
-              {selectedItem.thumbnailError && (
-                <>
-                  <dt>封面错误</dt>
-                  <dd className="error-text" title={selectedItem.thumbnailError.detail ?? selectedItem.thumbnailError.message}>
-                    {selectedItem.thumbnailError.message}
-                  </dd>
-                </>
-              )}
-            </dl>
-          ) : (
-            <p className="muted">点击一个视频查看基础信息。</p>
-          )}
-        </aside>
-      </main>
+        {!isNarrow && (
+          <DetailPanel
+            item={selectedItem}
+            rootPath={folderPath}
+            open={detailPaneOpen}
+            onToggleOpen={() => setDetailPaneOpen((value) => !value)}
+            onRevealInTree={handleRevealInTree}
+          />
+        )}
+      </div>
 
-      <footer className="statusbar">
-        <span className="path" title={folderPath}>{folderPath || "未选择文件夹"}</span>
-        <span>视频 {items.length}</span>
-        <span>显示 {filteredItems.length}</span>
-        <span>{progress.message ?? "空闲"}</span>
-        <span>封面 {progress.thumbnailsReady}/{progress.found}</span>
-        <span>失败 {progress.failures}</span>
-        {dependencyStatus && <span>{dependencyStatus.ffmpeg.available ? "ffmpeg 正常" : "缺少 ffmpeg"}</span>}
-        {dependencyStatus && <span>{dependencyStatus.ffprobe.available ? "ffprobe 正常" : "缺少 ffprobe"}</span>}
-        {notice && <span className="notice">{notice}</span>}
-      </footer>
+      <StatusBar
+        folderPath={folderPath}
+        progress={progress}
+        shownCount={filteredItems.length}
+        dependencyStatus={dependencyStatus}
+        notice={notice}
+      />
 
-      {menu && (
-        <div className="context-menu" style={{ left: menu.x, top: menu.y }} onClick={(event) => event.stopPropagation()}>
-          <button onClick={() => void runContextAction("showInFolder", menu.item)}>打开所在目录</button>
-          <button onClick={() => void runContextAction("openVideo", menu.item)}>用默认播放器打开</button>
-          <button onClick={() => void runContextAction("copyPath", menu.item)}>复制完整路径</button>
-          <button onClick={() => void runContextAction("regenerateThumbnail", menu.item)}>重新生成封面</button>
+      {dragState && (
+        <div className="pointer-events-none fixed inset-0 z-50 grid place-items-center bg-background/70 backdrop-blur-[1px]">
+          <div
+            className={`rounded-xl border-2 px-8 py-6 text-center ${
+              dragState === "folder"
+                ? "border-primary bg-primary/10 text-primary"
+                : "border-destructive bg-destructive/10 text-destructive"
+            }`}
+          >
+            <p className="m-0 text-lg font-semibold">
+              {dragState === "folder" ? "释放以打开此文件夹" : "仅支持拖入单个文件夹"}
+            </p>
+            <p className="m-0 mt-1 text-sm opacity-80">不会修改目录中的任何文件</p>
+          </div>
         </div>
       )}
     </div>

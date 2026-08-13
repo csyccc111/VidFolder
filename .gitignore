@@ -9,3 +9,4 @@ PROJECT_MEMORY.md
 .workbuddy/
 del-result.txt
 proc-check.txt
+scripts/smoke-out/

@@ -16,7 +16,9 @@ prompts/
   01-core-video-browser.md
   02-browser-efficiency.md
   03-ffmpeg-readiness-and-polish.md
-  04-release-checklist.md
+  04-release-hardening.md
+  05-ui-tree-and-quick-access.md
+  06-hover-frame-preview.md
 ```
 
 当前已有的 `VIDEO_BROWSER_PROMPT.md` 可以作为 v0.1 到 v0.2 的综合背景文档。后续新增 prompt 应优先使用独立版本文件，避免不断膨胀同一个总提示词。
@@ -233,11 +235,44 @@ v0.4 不新增浏览功能，目标是把 v0.3 从“功能可用”推进到“
 - 不加入播放器、标签、收藏、文件管理、数据库或自动下载 ffmpeg。
 - v0.4 的代码改动只服务于错误处理、缓存可靠性、已证实的性能瓶颈和发布一致性。
 
-### v0.5 可选体验增强
+### v0.5 界面体系、文件夹树与快速访问
 
-- 悬停多帧预览。
-- 多候选封面选择。
-- 最近打开文件夹入口。
-- 导出当前列表为 CSV。
+规划与提示词：OpenAI Codex（GPT-5），2026-08-13。
 
-这些都应作为独立版本 prompt，不混入 v0.4。
+详细增量 Prompt 见 [`prompts/05-ui-tree-and-quick-access.md`](./prompts/05-ui-tree-and-quick-access.md)。
+
+本版本只负责前端体验和导航体系：
+
+- 按官方已有 Vite 项目方式接入 shadcn/ui，只加入实际使用的组件源码。
+- 重构前端组件边界和桌面工具布局，保留所有既有业务行为。
+- 将扁平目录列表升级为层级文件夹树。
+- 增加最近文件夹、固定常用文件夹、失效路径处理和单文件夹拖入打开。
+- 增加双击、方向键、Enter、Ctrl+C 等高频浏览操作。
+- 记住合理范围内的树展开状态、侧栏和详情栏状态。
+
+本版不做悬停预览、多候选封面、文件管理和完整文件系统树。
+
+### v0.6 悬停多帧预览
+
+规划与提示词：OpenAI Codex（GPT-5），2026-08-13。
+
+详细增量 Prompt 见 [`prompts/06-hover-frame-preview.md`](./prompts/06-hover-frame-preview.md)。
+
+本版本只负责视觉预览链路：
+
+- 网格封面停留后，根据鼠标水平位置查看约 8 个代表帧。
+- 预览按需生成，不在普通扫描阶段批量预生成。
+- 使用独立缓存、容量上限、近似 LRU 淘汰和安全清理。
+- 使用独立有界队列、requestId、取消和陈旧响应隔离。
+- 缺少 ffmpeg、短视频、损坏视频和失败任务均回退静态封面。
+
+本版不做播放器、音频、多候选封面选择或保存预览帧为主封面。
+
+### v0.7 以后候选
+
+- 当前文件夹实时变更监控。
+- 导出当前结果为 CSV/JSON。
+- 编码、码率、帧率和音轨等详情增强。
+- 多根目录聚合浏览。
+- 自动更新检查。
+- 内置 ffmpeg 的许可、包体和更新策略研究。
