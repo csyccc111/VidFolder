@@ -1,174 +1,146 @@
-# Vid Folder Browser / 视频文件浏览器
+# Vid Folder Browser · 视频文件浏览器
 
-一个轻量级桌面应用，用于选择本地文件夹后递归浏览其中的视频文件，并展示封面、文件名、大小、时长、修改时间和基础详情。
+一个轻量级桌面应用：选择本地文件夹，递归扫描其中的视频，用封面、文件名、大小、时长和基础信息帮你快速找到目标视频。
 
-它的定位是“带封面预览的视频文件夹浏览器”：不是播放器，也不是复杂素材管理器。
+定位是“带封面预览的视频文件夹浏览器”——不是播放器，也不是复杂素材管理器。
+
+> 当前版本：**v0.5.0**（Windows x64）
+
+## 界面预览
+
+![主界面（演示数据）](docs/v0.5-screenshots/complete.png)
+
+> 上图为使用模拟数据生成的界面截图（网格视图 + 文件夹树 + 快速访问 + 详情面板）。
 
 ## 功能
 
-- 选择本地文件夹，并记住上次选择的路径
-- 递归扫描 `.mp4`、`.mkv`、`.avi`、`.mov`、`.wmv`、`.flv`、`.webm`、`.m4v`
-- 扫描过程增量显示结果，不必等待全部扫描完成
-- 使用 `ffprobe` 读取视频时长、分辨率
-- 使用 `ffmpeg` 生成 16:9 缩略图，并缓存在应用数据目录
-- 基于文件路径、大小和修改时间判断缓存是否失效
-- 支持搜索、排序、升降序切换、缩略图小/中/大切换
-- 支持网格视图和列表视图切换
-- 支持按格式、时长、画面方向/分辨率筛选
-- 记住上次使用的视图模式、排序方式、排序方向和缩略图大小
-- 左侧文件夹数量显示该目录及其子目录中的累计视频数
-- 列表视图支持点击表头按文件名、时长、大小、修改时间排序
-- 启动时检测 `ffmpeg` / `ffprobe` 可用性，并在界面中提示依赖状态
-- 支持右键菜单：打开所在目录、用默认播放器打开、复制完整路径、重新生成封面
-- 提供右侧详情面板和底部状态栏
+### 浏览与导航
 
-### v0.5 新增
+- 选择本地文件夹，记住上次打开路径，启动自动恢复
+- **层级文件夹树**：按目录层级展示视频文件夹，显示直接/累计视频数；支持展开/折叠、名称过滤、全部折叠、选中节点自动展开祖先、右键“在资源管理器中打开”
+- **快速访问**：自动记录最近成功打开的文件夹（最多 10 条、按时间排序、路径去重），可固定常用文件夹；失效路径会标记提示且不影响启动
+- **拖入打开**：从资源管理器把单个文件夹拖进窗口即可打开（多目标/文件会给出提示，不会修改目录中任何文件）
+- 网格视图 / 列表视图切换，缩略图小/中/大三档
 
-- **shadcn/ui 组件体系**：接入 Tailwind CSS 与 Radix 基础组件（Button、Select、Popover、Tooltip、ContextMenu、ScrollArea、Sheet、ToggleGroup 等），组件源码由项目维护
-- **层级文件夹树**：左侧按目录层级展示视频文件夹，显示直接/累计视频数，支持展开/折叠、名称过滤、全部折叠、右键在资源管理器中打开、完整键盘导航
-- **快速访问**：记住最近成功打开的文件夹（最多 10 条，按时间排序、路径去重），可固定常用文件夹；失效路径会标记提示且不影响启动；从资源管理器拖入单个文件夹可直接打开
-- **高频浏览操作**：双击卡片/行用默认播放器打开；网格和列表中方向键移动选择；`Enter` 打开、`Ctrl+C` 复制路径；详情面板提供"在文件夹树中定位"
-- **工作区布局**：左侧栏可折叠并可拖拽调宽，右侧详情面板可收起；窄窗口下详情自动切换为侧滑覆盖层；展开状态、侧栏状态、详情栏状态均持久化
-- 树展开状态按根文件夹分别记忆，设置写入节流并限量，`settings.json` 不会无界增长
+### 扫描与缓存
+
+- 递归扫描 `.mp4` `.mkv` `.avi` `.mov` `.wmv` `.flv` `.webm` `.m4v`
+- 扫描过程增量显示结果，支持刷新与取消；不可读子目录跳过并提示，根目录不可读明确报错
+- `ffprobe` 读取时长、分辨率；`ffmpeg` 生成 16:9 封面
+- 封面与元信息缓存到应用数据目录，按“路径 + 大小 + 修改时间”判断失效；缺失/损坏的封面自动重新生成（自愈）
+- 元信息与封面任务解耦：一方失败不阻断另一方；启动时检测 `ffmpeg`/`ffprobe`，缺失时仍可浏览已有缓存
+
+### 搜索、排序与筛选
+
+- 文件名实时搜索；按文件名、修改时间、大小、时长排序（升降序切换，列表视图表头可点击排序）
+- 按格式、时长（1 分钟内 / 1-20 分钟 / 20 分钟以上）、画面方向与分辨率（横竖屏、方形、720p+、1080p+、4K+）筛选
+- 所有条件可组合，一键清除；筛选面板显示当前生效条件数量
+
+### 快捷键
+
+| 操作 | 快捷键 |
+| --- | --- |
+| 打开视频（系统默认播放器） | 双击卡片/行，或选中后 `Enter` |
+| 移动选择 | 方向键（网格按列数换行） |
+| 复制完整路径 | `Ctrl+C` |
+| 在文件夹树中定位当前视频 | 详情面板按钮 |
+
+### 界面与体验
+
+- 顶部紧凑工具栏；左侧可折叠、可拖拽调宽的侧栏；右侧可收起的详情面板；底部状态栏
+- 窄窗口（< 1100px）下详情自动切换为侧滑覆盖层，不与主内容重叠
+- 树展开状态、侧栏状态、详情栏状态、视图/排序/缩略图偏好全部持久化
+- 右键菜单：打开所在目录、默认播放器打开、复制路径、重新生成封面
+- 基于 shadcn/ui（Tailwind + Radix）的统一组件体系，暗色、紧凑、克制
 
 ## 下载使用
 
-发布版会放在 GitHub Releases 页面：
+发布版位于 GitHub Releases：
 
-https://github.com/csyccc111/VidFolder/releases
+<https://github.com/csyccc111/VidFolder/releases>
 
-下载 `Vid Folder Browser-*-win-x64.zip` 后解压，运行其中的 `Vid Folder Browser.exe`。
+下载 `Vid.Folder.Browser-*-win-x64.zip`，解压后运行 `Vid Folder Browser.exe`。
 
-当前版本依赖本机已安装的 `ffmpeg` 和 `ffprobe`。请确保它们可以在系统 `PATH` 中直接执行。
+**依赖**：本机需安装 `ffmpeg` 与 `ffprobe` 并加入系统 `PATH`（应用不内置、不自动下载）。缺失时应用仍可打开和浏览已有缓存，但新视频的封面或时长/分辨率可能无法生成。
 
-应用启动时会自动检测 `ffmpeg` 和 `ffprobe`：
+## 从源码运行
 
-- `ffmpeg` 用于生成新视频封面。
-- `ffprobe` 用于读取视频时长和分辨率。
-- 如果缺少其中之一，应用仍可打开并扫描文件，已有缓存封面和元信息仍会展示，但新视频的封面或元信息可能无法生成。
-
-## 运行要求
-
-开发或从源码运行需要：
-
-- Node.js 和 npm
-- ffmpeg 和 ffprobe
-- Windows 系统，当前打包目标为 Windows x64 zip
-
-## 开发运行
+要求：Node.js 18+、npm、Windows、ffmpeg/ffprobe。
 
 ```bash
-npm install
-npm run dev
+npm install        # 安装依赖
+npm run dev        # 启动开发模式（Vite + Electron）
 ```
 
-如果在 PowerShell 中遇到 `npm.ps1` 执行策略限制，可以改用：
+> PowerShell 执行策略限制时用 `npm.cmd run dev`。
+
+## 构建与打包
 
 ```bash
-npm.cmd run dev
+npm run build      # 类型检查 + 前端 + 主进程构建
+npm run dist:zip   # 生成 Windows x64 zip 发布包（release/）
 ```
 
-## 构建
-
-生成前端和 Electron 主进程构建产物：
-
-```bash
-npm run build
-```
-
-生成 Windows zip 发布包：
-
-```bash
-npm run dist:zip
-```
-
-构建产物会生成到：
+构建产物目录（不提交到仓库）：
 
 - `dist/`：前端构建结果
 - `dist-electron/`：Electron 主进程构建结果
-- `release/`：electron-builder 生成的发布包
+- `release/`：electron-builder 发布包
 
-这些目录是构建产物，不提交到源码仓库。
+## 测试
 
-## 发布 Release
+```bash
+npm test          # 聚焦单元测试（路径归一化、树构造、历史去重/淘汰）
+npm run typecheck # 类型检查
+```
 
-1. 确认 `package.json` 中的 `version` 是要发布的版本。
-2. 完成构建和冒烟测试（清单见 `docs/smoke-test-checklist.md`）。
-3. 运行：
+UI 回归冒烟：`scripts/smoke-dom.cjs`（Electron 无头加载构建产物 + 模拟 IPC，18 项 DOM 断言），详见 `docs/v0.5-ui-regression.md`。
 
-   ```bash
-   npm run dist:zip
-   ```
+## 项目结构
 
-   > 如本机构建受环境干扰（删除操作被拦截、electron 解压目录被锁），可使用等价命令：
-   >
-   > ```bash
-   > NODE_OPTIONS="--use-system-ca" npx electron-builder --win zip --config.directories.output=release-v040 --config.electronDist=node_modules/electron/dist
-   > ```
+```text
+src/
+  App.tsx                # 状态编排与顶层布局
+  components/ui/         # shadcn/ui 基础组件（项目内维护）
+  components/            # 侧栏、文件夹树、快速访问、网格/列表、详情、状态栏
+  lib/                   # 纯逻辑：路径、树构造、历史记录、筛选排序、格式化
+  shared.ts              # 渲染进程与主进程共享类型
+electron/
+  main.ts                # 主进程：扫描、ffprobe/ffmpeg、缓存、IPC
+  preload.cts            # contextBridge 安全暴露 API
+prompts/                 # 版本化增量开发提示词（05 = v0.5，06 = v0.6 规划）
+```
 
-4. 记录产物 SHA-256：
-
-   ```bash
-   certutil -hashfile "release/Vid.Folder.Browser-0.4.0-win-x64.zip" SHA256
-   ```
-
-5. 打开 GitHub Releases 页面：https://github.com/csyccc111/VidFolder/releases
-6. 创建新 Release：Tag 使用 `v版本号`（如 `v0.4.0`），标题与资产版本一致。
-7. 上传 `release/` 目录中的 zip（命名格式 `Vid.Folder.Browser-<版本>-win-x64.zip`）。
-8. 发布后以 GitHub API 核验（页面可能有缓存，以 API 为准）：
-
-   ```bash
-   curl -s https://api.github.com/repos/csyccc111/VidFolder/releases/tags/v0.4.0
-   ```
-
-   核对资产名称、大小（字节）与本地一致，下载后比对 SHA-256。
-
-完整步骤见 `docs/release-checklist.md`。
-
-源码仓库只保存代码、配置和文档；安装包、zip、exe 等大文件通过 GitHub Releases 分发。
+> 发布（GitHub Releases 流程、SHA-256 核验）由维护者执行，步骤见 `docs/release-checklist.md`。
 
 ## 已知限制
 
 - 依赖本机 `ffmpeg` 与 `ffprobe`，不内置、不自动下载。
-- 缓存失效判断基于"路径 + 文件大小 + 修改时间"；**文件内容变化但三者均不变**时可能命中旧缓存，这是当前缓存策略的已知边界（v0.4 明确接受，不引入全文件哈希）。
-- 首次扫描（冷缓存）需要为每个视频执行 ffprobe 和 ffmpeg，耗时与视频数量正相关；二次扫描（热缓存）明显更快。
-- 扫描过程中不可读的子目录会被跳过并提示，根目录不可读会直接报告扫描失败。
-- 缩略图缺失或损坏时会自动重新生成（自愈）。
-- `metadata-cache.json` 损坏时应用自动回退到空缓存，原文件会以 `.corrupt-<时间戳>` 备份在应用数据目录。
+- 缓存失效基于“路径 + 大小 + 修改时间”；**内容变化但三者均不变**时可能命中旧缓存（v0.4 明确接受的边界，不引入全文件哈希）。
+- 首次扫描（冷缓存）需逐视频执行 ffprobe/ffmpeg，耗时与视频数量正相关；二次扫描（热缓存）明显更快。
+- 不可读子目录会跳过并提示；根目录不可读直接报告扫描失败。
+- 不提供实时文件监控：文件夹内容变化后需手动刷新。
 
-## 质量与测试文档
+## 数据位置
 
-- `docs/performance-benchmark-guide.md`：大目录性能基准测试步骤（500/2000/5000+ 三档）。
-- `docs/cache-validation-record.md`：缓存失效验证场景与记录模板。
-- `docs/smoke-test-checklist.md`：发布前人工冒烟清单。
-- `docs/release-checklist.md`：发布流程清单。
+应用数据目录（`%APPDATA%/vid-folder-browser`）：
 
-## 缓存位置
+- `cache/`：封面缩略图
+- `metadata-cache.json`：元信息与缩略图状态（损坏时自动备份为 `.corrupt-<时间戳>` 并回退空缓存）
+- `settings.json`：上次文件夹、界面偏好、最近/固定文件夹、树展开状态、侧栏与详情栏状态
 
-缩略图和元信息保存在 Electron 的应用数据目录下：
+## 质量文档
 
-- `cache/`：缩略图
-- `metadata-cache.json`：视频元信息和缩略图状态
-- `settings.json`：上次选择的文件夹、视图/排序/缩略图大小偏好，以及最近/固定文件夹、树展开状态、侧栏与详情栏状态
-
-## 开发测试
-
-```bash
-npm test          # 运行聚焦单元测试（路径归一化、树构造、历史记录去重/淘汰）
-npm run typecheck # 类型检查
-npm run build     # 前端 + 主进程构建
-```
+- `docs/performance-benchmark-guide.md`：大目录性能基准（500/2000/5000+ 三档）
+- `docs/cache-validation-record.md`：缓存失效验证场景与模板
+- `docs/smoke-test-checklist.md`：发布前人工冒烟清单
+- `docs/release-checklist.md`：发布流程清单
+- `docs/v0.5-ui-regression.md`：v0.5 UI 重构回归记录
 
 ## 非目标功能
 
-当前版本刻意不包含以下功能：
-
-- 内置视频播放器
-- 删除、移动、重命名视频
-- 标签、收藏、评论
-- 批量管理或复杂素材库功能
-- 云同步或登录系统
+刻意不做：内置播放器、删除/移动/重命名、标签与收藏、批量管理、复杂素材库、云同步、登录系统。
 
 ## 开发背景
 
-初始需求和范围说明(ai提示词)见 [VIDEO_BROWSER_PROMPT.md](./VIDEO_BROWSER_PROMPT.md)。
+初始需求与范围说明（AI 提示词）：[VIDEO_BROWSER_PROMPT.md](./VIDEO_BROWSER_PROMPT.md)。
