@@ -1,5 +1,8 @@
-import { ArrowDown, ArrowUp, FolderOpen, LayoutGrid, List, PanelRight, RefreshCw, Search, SlidersHorizontal, X } from "lucide-react";
+import { useEffect, useState } from "react";
+import { ArrowDown, ArrowUp, Database, Eye, EyeOff, FolderOpen, LayoutGrid, List, PanelRight, RefreshCw, Search, SlidersHorizontal, Trash2, X } from "lucide-react";
 import type { DurationFilter, ResolutionFilter, SortKey, ThumbSize, ViewMode } from "@/lib/filter";
+import type { PreviewCacheStats } from "@/shared";
+import { formatBytes } from "@/lib/format";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
@@ -59,6 +62,11 @@ type ToolbarProps = {
   onRefresh: () => void;
   detailOpen: boolean;
   onToggleDetail: () => void;
+  hoverPreviewEnabled: boolean;
+  onToggleHoverPreview: () => void;
+  hoverPreviewDisabledReason?: string;
+  onRefreshPreviewStats: () => Promise<PreviewCacheStats>;
+  onClearPreviewCache: () => Promise<PreviewCacheStats>;
 };
 
 export function Toolbar({
@@ -86,13 +94,48 @@ export function Toolbar({
   onChooseFolder,
   onRefresh,
   detailOpen,
-  onToggleDetail
+  onToggleDetail,
+  hoverPreviewEnabled,
+  onToggleHoverPreview,
+  hoverPreviewDisabledReason,
+  onRefreshPreviewStats,
+  onClearPreviewCache
 }: ToolbarProps) {
   const thumbSizes: Array<{ value: ThumbSize; label: string }> = [
     { value: "small", label: "小" },
     { value: "medium", label: "中" },
     { value: "large", label: "大" }
   ];
+
+  const [cachePopoverOpen, setCachePopoverOpen] = useState(false);
+  const [previewStats, setPreviewStats] = useState<PreviewCacheStats>();
+  const [clearing, setClearing] = useState(false);
+
+  useEffect(() => {
+    if (cachePopoverOpen) {
+      void onRefreshPreviewStats().then(setPreviewStats);
+    }
+  }, [cachePopoverOpen, onRefreshPreviewStats]);
+
+  const hoverToggle = (
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <Button
+          variant={hoverPreviewEnabled ? "secondary" : "outline"}
+          size="icon"
+          onClick={onToggleHoverPreview}
+          disabled={Boolean(hoverPreviewDisabledReason)}
+          aria-label="切换悬停预览"
+          aria-pressed={hoverPreviewEnabled}
+        >
+          {hoverPreviewEnabled ? <Eye /> : <EyeOff />}
+        </Button>
+      </TooltipTrigger>
+      <TooltipContent>
+        {hoverPreviewDisabledReason ?? (hoverPreviewEnabled ? "悬停预览已开启" : "悬停预览已关闭")}
+      </TooltipContent>
+    </Tooltip>
+  );
 
   return (
     <header className="flex flex-wrap items-center gap-2 border-b bg-sidebar px-3 py-2">
@@ -274,6 +317,62 @@ export function Toolbar({
               </SelectContent>
             </Select>
           </div>
+        </PopoverContent>
+      </Popover>
+
+      <Separator orientation="vertical" className="h-6" />
+
+      {hoverToggle}
+
+      <Popover open={cachePopoverOpen} onOpenChange={setCachePopoverOpen}>
+        <PopoverTrigger asChild>
+          <Button variant="outline" size="icon" title="预览缓存" aria-label="预览缓存管理">
+            <Database />
+          </Button>
+        </PopoverTrigger>
+        <PopoverContent align="end" className="w-72">
+          <div className="flex items-center justify-between">
+            <span className="text-sm font-medium">悬停预览缓存</span>
+            <Button
+              variant="ghost"
+              size="sm"
+              className="h-6 gap-1 px-2 text-xs"
+              disabled={clearing || !previewStats || previewStats.videoCount === 0}
+              onClick={async () => {
+                setClearing(true);
+                try {
+                  const stats = await onClearPreviewCache();
+                  setPreviewStats(stats);
+                } finally {
+                  setClearing(false);
+                }
+              }}
+            >
+              <Trash2 />
+              清理
+            </Button>
+          </div>
+          {previewStats ? (
+            <dl className="space-y-1 text-xs">
+              <div className="flex justify-between">
+                <dt className="text-muted-foreground">占用空间</dt>
+                <dd className="m-0 font-mono">{formatBytes(previewStats.bytes)}</dd>
+              </div>
+              <div className="flex justify-between">
+                <dt className="text-muted-foreground">视频组</dt>
+                <dd className="m-0 font-mono">{previewStats.videoCount}</dd>
+              </div>
+              <div className="flex justify-between">
+                <dt className="text-muted-foreground">帧总数</dt>
+                <dd className="m-0 font-mono">{previewStats.frameCount}</dd>
+              </div>
+            </dl>
+          ) : (
+            <p className="text-xs text-muted-foreground">读取中…</p>
+          )}
+          <p className="text-[11px] text-muted-foreground">
+            悬停网格封面时按需生成预览帧，仅存于应用数据目录，可随时清理。
+          </p>
         </PopoverContent>
       </Popover>
 

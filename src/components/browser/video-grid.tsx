@@ -1,17 +1,21 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { VideoItem } from "@/shared";
-import { VideoCard } from "./video-card";
+import { VideoCard, type PreviewSessionInfo } from "./video-card";
 import { cn } from "@/lib/utils";
 
 type VideoGridProps = {
   items: VideoItem[];
   selectedId?: string;
   thumbSize: "small" | "medium" | "large";
+  hoverPreviewEnabled: boolean;
+  previewSession?: PreviewSessionInfo;
   onSelect: (id: string) => void;
   onOpenItem: (item: VideoItem) => void;
   onShowInFolder: (item: VideoItem) => void;
   onCopyPath: (item: VideoItem) => void;
   onRegenerateThumbnail: (item: VideoItem) => void;
+  onPreviewStart: (item: VideoItem) => void;
+  onPreviewLeave: (videoId: string) => void;
 };
 
 const thumbMinWidths: Record<string, number> = {
@@ -24,11 +28,15 @@ export function VideoGrid({
   items,
   selectedId,
   thumbSize,
+  hoverPreviewEnabled,
+  previewSession,
   onSelect,
   onOpenItem,
   onShowInFolder,
   onCopyPath,
-  onRegenerateThumbnail
+  onRegenerateThumbnail,
+  onPreviewStart,
+  onPreviewLeave
 }: VideoGridProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const [columns, setColumns] = useState(4);
@@ -108,11 +116,15 @@ export function VideoGrid({
           <VideoCard
             item={item}
             selected={selectedId === item.id}
+            hoverPreviewEnabled={hoverPreviewEnabled}
+            previewSession={previewSession}
             onSelect={() => onSelect(item.id)}
             onOpen={() => onOpenItem(item)}
             onShowInFolder={() => onShowInFolder(item)}
             onCopyPath={() => onCopyPath(item)}
             onRegenerateThumbnail={() => onRegenerateThumbnail(item)}
+            onPreviewStart={onPreviewStart}
+            onPreviewLeave={onPreviewLeave}
           />
         </div>
       ))}

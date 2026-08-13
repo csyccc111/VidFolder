@@ -1,5 +1,17 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import type { ContextAction, DependencyStatus, FolderHistoryEntry, FolderTreeNode, ScanProgress, VideoItem } from "@/shared";
+import type {
+  ContextAction,
+  DependencyStatus,
+  FolderHistoryEntry,
+  FolderTreeNode,
+  ItemError,
+  PreviewCacheStats,
+  PreviewFrame,
+  PreviewResult,
+  PreviewState,
+  ScanProgress,
+  VideoItem
+} from "@/shared";
 import {
   DurationFilter,
   FilterState,
@@ -28,6 +40,7 @@ import { DetailPanel } from "@/components/details/detail-panel";
 import { StatusBar } from "@/components/status/status-bar";
 import { ScanNotices } from "@/components/status/scan-notices";
 import { Sidebar, SIDEBAR_DEFAULT_WIDTH, SIDEBAR_MAX_WIDTH, SIDEBAR_MIN_WIDTH } from "@/components/layout/sidebar";
+import type { PreviewSessionInfo } from "@/components/browser/video-card";
 
 const emptyProgress: ScanProgress = {
   state: "idle",
@@ -68,6 +81,9 @@ export default function App() {
   const [detailSheetOpen, setDetailSheetOpen] = useState(false);
   const [isNarrow, setIsNarrow] = useState(() => window.innerWidth < NARROW_WINDOW_WIDTH);
   const [dragState, setDragState] = useState<"folder" | "invalid">();
+  const [hoverPreviewEnabled, setHoverPreviewEnabled] = useState(true);
+  const [previewSession, setPreviewSession] = useState<PreviewSessionInfo>();
+  const previewRequests = useRef(new Map<string, string>());
 
   const initialized = useRef(false);
   const settingsLoaded = useRef(false);
@@ -108,6 +124,20 @@ export default function App() {
         return copy;
       });
     });
+    const disposePreview = window.videoBrowser.onPreviewResult((result) => {
+      previewRequests.current.delete(result.videoId);
+      setPreviewSession((current) => {
+        // 陈旧响应隔离：只接受仍与当前会话匹配的结果。
+        if (!current || current.requestId !== result.requestId) return current;
+        return {
+          videoId: result.videoId,
+          requestId: result.requestId,
+          state: result.state,
+          frames: result.frames,
+          error: result.error
+        };
+      });
+    });
     if (!initialized.current) {
       initialized.current = true;
       window.videoBrowser.getSettings().then((settings) => {
@@ -120,6 +150,7 @@ export default function App() {
           setSidebarWidth(Math.min(Math.max(settings.sidebarWidth, SIDEBAR_MIN_WIDTH), SIDEBAR_MAX_WIDTH));
         }
         if (typeof settings.detailPaneOpen === "boolean") setDetailPaneOpen(settings.detailPaneOpen);
+        if (typeof settings.hoverPreviewEnabled === "boolean") setHoverPreviewEnabled(settings.hoverPreviewEnabled);
         setRecentFolders(settings.recentFolders ?? []);
         setExpandedByRoot(sanitizeExpandedFoldersByRoot(settings.expandedFoldersByRoot));
         settingsLoaded.current = true;
@@ -133,6 +164,7 @@ export default function App() {
     return () => {
       disposeProgress();
       disposeItem();
+      disposePreview();
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -149,6 +181,7 @@ export default function App() {
         sidebarOpen,
         sidebarWidth,
         detailPaneOpen,
+        hoverPreviewEnabled,
         expandedFoldersByRoot: expandedByRoot
       });
     }, 250);
@@ -162,6 +195,7 @@ export default function App() {
     sidebarOpen,
     sidebarWidth,
     detailPaneOpen,
+    hoverPreviewEnabled,
     expandedByRoot
   ]);
 
@@ -477,6 +511,39 @@ export default function App() {
     }
   }
 
+  // ---- v0.6 悬停多帧预览会话 ----
+
+  function handlePreviewStart(item: VideoItem) {
+    if (!hoverPreviewEnabled || !window.videoBrowser) return;
+    const requestId = crypto.randomUUID();
+    previewRequests.current.set(item.id, requestId);
+    setPreviewSession({ videoId: item.id, requestId, state: "loading", frames: [] });
+    void window.videoBrowser.previewRequest({ requestId, videoId: item.id, filePath: item.filePath });
+  }
+
+  function handlePreviewLeave(videoId: string) {
+    const requestId = previewRequests.current.get(videoId);
+    if (requestId && window.videoBrowser) {
+      void window.videoBrowser.previewCancel(requestId);
+    }
+    previewRequests.current.delete(videoId);
+    setPreviewSession((current) => (current?.videoId === videoId ? undefined : current));
+  }
+
+  function refreshPreviewStats(): Promise<PreviewCacheStats> {
+    return window.videoBrowser?.previewGetStats() ?? Promise.resolve({ bytes: 0, videoCount: 0, frameCount: 0 });
+  }
+
+  async function clearPreviewCache(): Promise<PreviewCacheStats> {
+    // 协调进行中的预览：先取消当前会话与全部未完成请求。
+    for (const requestId of previewRequests.current.values()) {
+      void window.videoBrowser?.previewCancel(requestId);
+    }
+    previewRequests.current.clear();
+    setPreviewSession(undefined);
+    return window.videoBrowser?.previewClear() ?? { bytes: 0, videoCount: 0, frameCount: 0 };
+  }
+
   function emptyStateKind(): EmptyStateKind {
     if (!bridgeReady) return "no-bridge";
     if (!folderPath) return "no-folder";
@@ -523,6 +590,13 @@ export default function App() {
         onRefresh={() => void startScan(folderPath)}
         detailOpen={isNarrow ? detailSheetOpen : detailPaneOpen}
         onToggleDetail={handleToggleDetail}
+        hoverPreviewEnabled={hoverPreviewEnabled}
+        onToggleHoverPreview={() => setHoverPreviewEnabled((value) => !value)}
+        hoverPreviewDisabledReason={
+          dependencyStatus && !dependencyStatus.ffmpeg.available ? "缺少 ffmpeg，无法生成悬停预览" : undefined
+        }
+        onRefreshPreviewStats={refreshPreviewStats}
+        onClearPreviewCache={clearPreviewCache}
       />
 
       <ScanNotices dependencyStatus={dependencyStatus} progress={progress} />
@@ -573,11 +647,15 @@ export default function App() {
               items={filteredItems}
               selectedId={selectedId}
               thumbSize={thumbSize}
+              hoverPreviewEnabled={hoverPreviewEnabled}
+              previewSession={previewSession}
               onSelect={setSelectedId}
               onOpenItem={(item) => void runContextAction("openVideo", item)}
               onShowInFolder={(item) => void runContextAction("showInFolder", item)}
               onCopyPath={(item) => void runContextAction("copyPath", item)}
               onRegenerateThumbnail={(item) => void runContextAction("regenerateThumbnail", item)}
+              onPreviewStart={handlePreviewStart}
+              onPreviewLeave={handlePreviewLeave}
             />
           )}
           {bridgeReady && filteredItems.length > 0 && viewMode === "list" && (
