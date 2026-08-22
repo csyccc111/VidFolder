@@ -19,6 +19,12 @@ prompts/
   04-release-hardening.md
   05-ui-tree-and-quick-access.md
   06-hover-frame-preview.md
+  07-browse-enhancements.md
+  08-detail-enrichment.md
+  09-ffmpeg-dependency.md
+  10-release-and-update.md
+  11-duplicate-detection.md
+  12-i18n.md
 ```
 
 当前已有的 `VIDEO_BROWSER_PROMPT.md` 可以作为 v0.1 到 v0.2 的综合背景文档。后续新增 prompt 应优先使用独立版本文件，避免不断膨胀同一个总提示词。
@@ -268,11 +274,19 @@ v0.4 不新增浏览功能，目标是把 v0.3 从“功能可用”推进到“
 
 本版不做播放器、音频、多候选封面选择或保存预览帧为主封面。
 
-### v0.7 以后候选
+### v0.7-v0.12 后续版本规划（2026-08-23 确认）
 
-- 当前文件夹实时变更监控。
-- 导出当前结果为 CSV/JSON。
-- 编码、码率、帧率和音轨等详情增强。
-- 多根目录聚合浏览。
-- 自动更新检查。
-- 内置 ffmpeg 的许可、包体和更新策略研究。
+规划与提示词：DeepSeek-V4 Flash（agent: opencode），2026-08-23。
+
+用户确认的后续路线（质量验证跳过，v0.4 性能基准/缓存验证/冒烟不再执行；已按建议合并版本）：
+
+| 版本 | 内容 | 说明 |
+|---|---|---|
+| v0.7 | 浏览增强：列表视图悬停预览 + 播放进度记忆 | 预览复用 v0.6 主进程链路；进度记忆仅记录+角标，`ffplay -ss` 才可跳转 |
+| v0.8 | 详情增强：编码/码率/帧率/音轨/容器 | ffprobe 深度解析层，旧缓存兼容 |
+| v0.9 | ffmpeg 依赖解决：智能探测 + 按需下载 | 常见安装位置探测 + BtbN 静态构建下载（SHA-256 校验，GPL 声明） |
+| v0.10 | 发布与更新：GitHub Actions 自动构建发布 + 应用内更新检查 | 打 tag 即发布；更新检查只提示+引导下载，不自动替换 |
+| v0.11 | 重复文件检测（精确哈希，只读） | 大小分组 → 首块预筛 → 流式 MD5；不做删除/近似重复 |
+| v0.12 | 英文界面（i18n） | 中英双语；主进程错误改错误码，渲染端翻译；最后做 |
+
+详细增量 Prompt 见 `prompts/07-browse-enhancements.md` 至 `prompts/12-i18n.md`。

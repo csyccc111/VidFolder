@@ -530,6 +530,18 @@ export default function App() {
     setPreviewSession((current) => (current?.videoId === videoId ? undefined : current));
   }
 
+  // v0.7：列表预览在视图/排序/筛选/目录变化时立即关闭，防止陈旧浮层残留。
+  const listInvalidateKey = `${viewMode}|${sortKey}|${ascending}|${query}|${selectedDirectory}|${extensionFilter}|${durationFilter}|${resolutionFilter}|${folderPath}`;
+  const firstListInvalidate = useRef(true);
+  useEffect(() => {
+    if (firstListInvalidate.current) {
+      firstListInvalidate.current = false;
+      return;
+    }
+    if (previewSession) handlePreviewLeave(previewSession.videoId);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [listInvalidateKey]);
+
   function refreshPreviewStats(): Promise<PreviewCacheStats> {
     return window.videoBrowser?.previewGetStats() ?? Promise.resolve({ bytes: 0, videoCount: 0, frameCount: 0 });
   }
@@ -623,7 +635,14 @@ export default function App() {
           onOpenInExplorer={(path) => void window.videoBrowser?.showFolderInExplorer(path)}
         />
 
-        <main className="relative min-w-0 flex-1 overflow-auto" role="main">
+        <main
+          className="relative min-w-0 flex-1 overflow-auto"
+          role="main"
+          onScroll={() => {
+            // v0.7：滚动时立即关闭列表悬停预览会话（滚动中不创建预览任务）。
+            if (previewSession) handlePreviewLeave(previewSession.videoId);
+          }}
+        >
           {isNarrow ? (
             <DetailPanel
               item={selectedItem}
@@ -665,12 +684,16 @@ export default function App() {
               rootPath={folderPath}
               sortKey={sortKey}
               ascending={ascending}
+              hoverPreviewEnabled={hoverPreviewEnabled}
+              previewSession={previewSession}
               onSelect={setSelectedId}
               onChangeSort={changeListSort}
               onOpenItem={(item) => void runContextAction("openVideo", item)}
               onShowInFolder={(item) => void runContextAction("showInFolder", item)}
               onCopyPath={(item) => void runContextAction("copyPath", item)}
               onRegenerateThumbnail={(item) => void runContextAction("regenerateThumbnail", item)}
+              onPreviewStart={handlePreviewStart}
+              onPreviewLeave={handlePreviewLeave}
             />
           )}
         </main>

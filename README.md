@@ -4,7 +4,7 @@
 
 定位是“带封面预览的视频文件夹浏览器”——不是播放器，也不是复杂素材管理器。
 
-> 当前版本：**v0.6.0**（Windows x64）
+> 当前版本：**v0.7.0**（Windows x64）
 
 ## 界面预览
 
@@ -60,6 +60,12 @@
 - 预览帧独立缓存（`preview-cache/`），默认容量上限 512 MiB，按最近使用整组淘汰
 - 工具栏可开关悬停预览（设置持久化），缺少 ffmpeg 时自动禁用并说明原因；工具栏"预览缓存"面板可查看占用并一键清理
 
+### 列表悬停预览（v0.7）
+
+- 列表视图中悬停行约 400ms 后，在行下方浮出横向胶片预览条（8 帧一排），水平移动切换帧并高亮当前帧，实时显示帧时间
+- 复用 v0.6 的抽帧、缓存与取消机制；与网格预览共用会话、天然互斥；滚动/键盘/排序/筛选变化时立即关闭
+- 列表行新增小缩略图，作为悬停预览的载体
+
 ## 下载使用
 
 发布版位于 GitHub Releases：
@@ -101,7 +107,7 @@ npm test          # 聚焦单元测试（路径归一化、树构造、历史去
 npm run typecheck # 类型检查
 ```
 
-UI 回归冒烟：`scripts/smoke-dom.cjs`（Electron 无头加载构建产物 + 模拟 IPC，18 项 DOM 断言），详见 `docs/v0.5-ui-regression.md`。
+UI 回归冒烟：`scripts/smoke-dom.cjs`（Electron 无头加载构建产物 + 模拟 IPC，18 项 DOM 断言）、`scripts/smoke-preview.cjs`（v0.6 网格预览回归）、`scripts/smoke-v07.cjs`（v0.7 列表悬停预览，7 项断言），详见对应 docs/ 验证记录。
 
 ## 项目结构
 
@@ -145,6 +151,7 @@ prompts/                 # 版本化增量开发提示词（05 = v0.5，06 = v0.
 - `docs/release-checklist.md`：发布流程清单
 - `docs/v0.5-ui-regression.md`：v0.5 UI 重构回归记录
 - `docs/v0.6-preview-validation.md`：悬停预览自动化验证与压力测试记录
+- `docs/v0.7-browse-validation.md`：列表预览与进度记忆验证记录
 
 ## 非目标功能
 
