@@ -128,7 +128,6 @@ src/
 electron/
   main.ts                # 主进程：扫描、ffprobe/ffmpeg、缓存、IPC
   preload.cts            # contextBridge 安全暴露 API
-prompts/                 # 版本化增量开发提示词（05 = v0.5，06 = v0.6 规划）
 ```
 
 > 发布（GitHub Releases 流程、SHA-256 核验）由维护者执行，步骤见 `docs/release-checklist.md`。
@@ -164,7 +163,3 @@ prompts/                 # 版本化增量开发提示词（05 = v0.5，06 = v0.
 ## 非目标功能
 
 刻意不做：内置播放器、删除/移动/重命名、标签与收藏、批量管理、复杂素材库、云同步、登录系统。
-
-## 开发背景
-
-初始需求与范围说明（AI 提示词）：[VIDEO_BROWSER_PROMPT.md](./VIDEO_BROWSER_PROMPT.md)。
