@@ -82,6 +82,7 @@ export default function App() {
   const [isNarrow, setIsNarrow] = useState(() => window.innerWidth < NARROW_WINDOW_WIDTH);
   const [dragState, setDragState] = useState<"folder" | "invalid">();
   const [hoverPreviewEnabled, setHoverPreviewEnabled] = useState(true);
+  const [showCodecColumn, setShowCodecColumn] = useState(false);
   const [previewSession, setPreviewSession] = useState<PreviewSessionInfo>();
   const previewRequests = useRef(new Map<string, string>());
 
@@ -151,6 +152,7 @@ export default function App() {
         }
         if (typeof settings.detailPaneOpen === "boolean") setDetailPaneOpen(settings.detailPaneOpen);
         if (typeof settings.hoverPreviewEnabled === "boolean") setHoverPreviewEnabled(settings.hoverPreviewEnabled);
+        if (typeof settings.showCodecColumn === "boolean") setShowCodecColumn(settings.showCodecColumn);
         setRecentFolders(settings.recentFolders ?? []);
         setExpandedByRoot(sanitizeExpandedFoldersByRoot(settings.expandedFoldersByRoot));
         settingsLoaded.current = true;
@@ -182,6 +184,7 @@ export default function App() {
         sidebarWidth,
         detailPaneOpen,
         hoverPreviewEnabled,
+        showCodecColumn,
         expandedFoldersByRoot: expandedByRoot
       });
     }, 250);
@@ -196,6 +199,7 @@ export default function App() {
     sidebarWidth,
     detailPaneOpen,
     hoverPreviewEnabled,
+    showCodecColumn,
     expandedByRoot
   ]);
 
@@ -607,6 +611,8 @@ export default function App() {
         hoverPreviewDisabledReason={
           dependencyStatus && !dependencyStatus.ffmpeg.available ? "缺少 ffmpeg，无法生成悬停预览" : undefined
         }
+        showCodecColumn={showCodecColumn}
+        onToggleCodecColumn={() => setShowCodecColumn((value) => !value)}
         onRefreshPreviewStats={refreshPreviewStats}
         onClearPreviewCache={clearPreviewCache}
       />
@@ -684,6 +690,7 @@ export default function App() {
               rootPath={folderPath}
               sortKey={sortKey}
               ascending={ascending}
+              showCodecColumn={showCodecColumn}
               hoverPreviewEnabled={hoverPreviewEnabled}
               previewSession={previewSession}
               onSelect={setSelectedId}

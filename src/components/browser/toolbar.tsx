@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Toggle } from "@/components/ui/toggle";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { Separator } from "@/components/ui/separator";
@@ -65,6 +66,8 @@ type ToolbarProps = {
   hoverPreviewEnabled: boolean;
   onToggleHoverPreview: () => void;
   hoverPreviewDisabledReason?: string;
+  showCodecColumn: boolean;
+  onToggleCodecColumn: () => void;
   onRefreshPreviewStats: () => Promise<PreviewCacheStats>;
   onClearPreviewCache: () => Promise<PreviewCacheStats>;
 };
@@ -98,6 +101,8 @@ export function Toolbar({
   hoverPreviewEnabled,
   onToggleHoverPreview,
   hoverPreviewDisabledReason,
+  showCodecColumn,
+  onToggleCodecColumn,
   onRefreshPreviewStats,
   onClearPreviewCache
 }: ToolbarProps) {
@@ -316,6 +321,18 @@ export function Toolbar({
                 ))}
               </SelectContent>
             </Select>
+          </div>
+          <Separator />
+          <div className="flex items-center justify-between">
+            <label className="text-xs text-muted-foreground">显示编码列</label>
+            <Toggle
+              pressed={showCodecColumn}
+              onPressedChange={onToggleCodecColumn}
+              aria-label="列表视图显示编码列"
+              title="在列表视图中显示视频编码列"
+            >
+              编码
+            </Toggle>
           </div>
         </PopoverContent>
       </Popover>

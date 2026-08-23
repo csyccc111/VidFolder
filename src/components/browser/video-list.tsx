@@ -16,6 +16,7 @@ type VideoListProps = {
   rootPath: string;
   sortKey: SortKey;
   ascending: boolean;
+  showCodecColumn: boolean;
   hoverPreviewEnabled: boolean;
   previewSession?: PreviewSessionInfo;
   onSelect: (id: string) => void;
@@ -28,13 +29,17 @@ type VideoListProps = {
   onPreviewLeave: (videoId: string) => void;
 };
 
-const columns = ["文件名", "时长", "大小", "分辨率", "修改时间", "所在文件夹"] as const;
-const sortableIndexes: Array<{ key: SortKey; index: number }> = [
-  { key: "fileName", index: 0 },
-  { key: "duration", index: 1 },
-  { key: "size", index: 2 },
-  { key: "modifiedAt", index: 4 }
+const baseColumns = ["文件名", "时长", "大小", "分辨率", "修改时间", "所在文件夹"] as const;
+const sortableColumns: Array<{ key: SortKey; label: string }> = [
+  { key: "fileName", label: "文件名" },
+  { key: "duration", label: "时长" },
+  { key: "size", label: "大小" },
+  { key: "modifiedAt", label: "修改时间" }
 ];
+
+const baseGridTemplate = "minmax(220px,2fr) 86px 92px 108px 146px minmax(180px,1fr)";
+/** 编码列插入"分辨率"之后：文件名 时长 大小 分辨率 编码 修改时间 所在文件夹。 */
+const codecGridTemplate = "minmax(220px,2fr) 86px 92px 108px 78px 146px minmax(180px,1fr)";
 
 /** 移出预览条与所属行后预览条消失的延迟（毫秒）。 */
 const FILMSTRIP_CLOSE_DELAY_MS = 200;
@@ -47,6 +52,7 @@ export function VideoList({
   rootPath,
   sortKey,
   ascending,
+  showCodecColumn,
   hoverPreviewEnabled,
   previewSession,
   onSelect,
@@ -58,6 +64,11 @@ export function VideoList({
   onPreviewStart,
   onPreviewLeave
 }: VideoListProps) {
+  const columns = showCodecColumn
+    ? ["文件名", "时长", "大小", "分辨率", "编码", "修改时间", "所在文件夹"]
+    : [...baseColumns];
+  const gridTemplate = showCodecColumn ? codecGridTemplate : baseGridTemplate;
+
   useEffect(() => {
     if (!selectedId) return;
     document
@@ -101,9 +112,9 @@ export function VideoList({
       onKeyDown={handleKeyDown}
       className="m-4 min-w-760 rounded-lg border"
     >
-      <div role="row" className="grid h-9 items-center gap-3 border-b bg-muted/60 px-3 text-xs font-medium text-muted-foreground" style={{ gridTemplateColumns: "minmax(220px,2fr) 86px 92px 108px 146px minmax(180px,1fr)" }}>
+      <div role="row" className="grid h-9 items-center gap-3 border-b bg-muted/60 px-3 text-xs font-medium text-muted-foreground" style={{ gridTemplateColumns: gridTemplate }}>
         {columns.map((label, index) => {
-          const sortable = sortableIndexes.find((entry) => entry.index === index);
+          const sortable = sortableColumns.find((entry) => entry.label === label);
           if (!sortable) {
             return <span key={label}>{label}</span>;
           }
@@ -129,6 +140,8 @@ export function VideoList({
           item={item}
           selected={selectedId === item.id}
           rootPath={rootPath}
+          showCodecColumn={showCodecColumn}
+          gridTemplate={gridTemplate}
           hoverPreviewEnabled={hoverPreviewEnabled}
           previewSession={previewSession}
           onSelect={() => onSelect(item.id)}
@@ -148,6 +161,8 @@ function ListRow({
   item,
   selected,
   rootPath,
+  showCodecColumn,
+  gridTemplate,
   hoverPreviewEnabled,
   previewSession,
   onSelect,
@@ -161,6 +176,8 @@ function ListRow({
   item: VideoItem;
   selected: boolean;
   rootPath: string;
+  showCodecColumn: boolean;
+  gridTemplate: string;
   hoverPreviewEnabled: boolean;
   previewSession?: PreviewSessionInfo;
   onSelect: () => void;
@@ -264,7 +281,7 @@ function ListRow({
             "hover:bg-muted/50 focus-visible:ring-2 focus-visible:ring-ring/60",
             selected && "bg-accent text-accent-foreground"
           )}
-          style={{ gridTemplateColumns: "minmax(220px,2fr) 86px 92px 108px 146px minmax(180px,1fr)" }}
+          style={{ gridTemplateColumns: gridTemplate }}
           onClick={onSelect}
           onDoubleClick={onOpen}
           onPointerEnter={handlePointerEnter}
@@ -298,6 +315,11 @@ function ListRow({
           <span className="truncate">{formatDuration(item.duration)}</span>
           <span className="truncate">{formatBytes(item.size)}</span>
           <span className="truncate">{item.width && item.height ? `${item.width} × ${item.height}` : "未读取"}</span>
+          {showCodecColumn && (
+            <span className="truncate" title={item.videoCodec}>
+              {item.codecShortName ?? "未读取"}
+            </span>
+          )}
           <span className="truncate">{formatDate(item.modifiedAt)}</span>
           <span className="truncate text-muted-foreground" title={item.directory}>
             {getRelativeDirectory(rootPath, item.directory)}

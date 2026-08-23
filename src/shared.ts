@@ -23,6 +23,18 @@ export type ItemError = {
   detail?: string;
 };
 
+/** 音轨信息（v0.8 新增）。 */
+export type AudioTrackInfo = {
+  /** 显示用编码名（如 "AAC"）。 */
+  codec?: string;
+  /** 声道数（如 2）。 */
+  channels?: number;
+  /** 采样率（Hz，如 44100）。 */
+  sampleRate?: number;
+  /** 语言标签（如 "chi"、"eng"）。 */
+  language?: string;
+};
+
 export type VideoItem = {
   id: string;
   filePath: string;
@@ -34,6 +46,22 @@ export type VideoItem = {
   duration?: number;
   width?: number;
   height?: number;
+  /** 容器格式展示（如 "MP4 (isom)"、"Matroska"）。 */
+  container?: string;
+  /** 视频编码展示（如 "H.264 (High, L4.1)"）。 */
+  videoCodec?: string;
+  /** 视频编码短名（如 "h264"、"hevc"），供列表编码列显示。 */
+  codecShortName?: string;
+  /** 容器总码率（kbps）。 */
+  containerBitrate?: number;
+  /** 视频流码率（kbps）。 */
+  videoBitrate?: number;
+  /** 码率是否由文件大小/时长估算而来（流级 bit_rate 缺失时）。 */
+  bitrateEstimated?: boolean;
+  /** 帧率（fps）。 */
+  frameRate?: number;
+  /** 音轨列表；解析成功但无音轨时为空数组。 */
+  audioTracks?: AudioTrackInfo[];
   thumbnailPath?: string;
   thumbnailStatus: ThumbnailStatus;
   metadataStatus: MetadataStatus;
@@ -77,6 +105,8 @@ export type AppSettings = {
   detailPaneOpen?: boolean;
   /** 网格悬停多帧预览开关（v0.6 新增，默认开启）。 */
   hoverPreviewEnabled?: boolean;
+  /** 列表视图显示编码列（v0.8 新增，默认关闭）。 */
+  showCodecColumn?: boolean;
 };
 
 /** 最近/固定文件夹记录（v0.5 新增）。 */

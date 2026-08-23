@@ -187,7 +187,7 @@ app.whenReady().then(async () => {
     const gridRegress = await evalSafe(`(async () => {
       document.querySelector('button[aria-label="网格视图"]').click();
       await new Promise(r => setTimeout(r, 300));
-      const card = document.querySelector('[data-video-id="demo1"] article');
+      const card = document.querySelector('[data-video-id="demo1"]');
       card.dispatchEvent(new PointerEvent('pointerover', { bubbles: true, clientX: 10, clientY: 10, relatedTarget: null }));
       await new Promise(r => setTimeout(r, 1200));
       const previewImg = card.querySelector('.pointer-events-none img');

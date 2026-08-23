@@ -1,7 +1,9 @@
-import { LocateFixed, X } from "lucide-react";
+import { ChevronDown, LocateFixed, X } from "lucide-react";
 import type { VideoItem } from "@/shared";
 import { formatBytes, formatDate, formatDuration } from "@/lib/format";
+import { formatAudioTrackText, formatFrameRateText, formatKbpsText } from "@/lib/media-info";
 import { Button } from "@/components/ui/button";
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { cn } from "@/lib/utils";
@@ -53,6 +55,7 @@ function DetailBody({
           label="分辨率"
           value={item.width && item.height ? `${item.width} × ${item.height}` : "未读取"}
         />
+        {item.metadataStatus === "ready" && <TechnicalSection item={item} />}
         {item.metadataError && (
           <div title={item.metadataError.detail ?? item.metadataError.message}>
             <dt className="text-[11px] text-destructive">元信息错误</dt>
@@ -81,6 +84,40 @@ function Field({ label, value, mono }: { label: string; value: string; mono?: bo
         {value}
       </dd>
     </div>
+  );
+}
+
+/** v0.8 技术信息折叠区块：容器 / 编码 / 码率 / 帧率 / 音轨，全部字段按"未知"兜底。 */
+function TechnicalSection({ item }: { item: VideoItem }) {
+  // key=item.id：切换选中视频时重置折叠状态（默认收起）。
+  return (
+    <Collapsible key={item.id} defaultOpen={false}>
+      <CollapsibleTrigger asChild>
+        <button className="flex w-full items-center justify-between rounded-md px-1 py-1 text-[11px] font-medium text-muted-foreground hover:bg-muted/60 hover:text-foreground">
+          技术信息
+          <ChevronDown className="size-3.5 transition-transform group-data-[state=open]:rotate-180" />
+        </button>
+      </CollapsibleTrigger>
+      <CollapsibleContent className="mt-1.5 space-y-2.5">
+        <Field label="容器" value={item.container ?? "未知"} />
+        <Field label="视频编码" value={item.videoCodec ?? "未知"} />
+        <Field label="码率（容器）" value={formatKbpsText(item.containerBitrate, item.bitrateEstimated) ?? "未知"} />
+        <Field label="码率（视频流）" value={formatKbpsText(item.videoBitrate) ?? "未知"} />
+        <Field label="帧率" value={formatFrameRateText(item.frameRate) ?? "未知"} />
+        <div>
+          <dt className="text-[11px] text-muted-foreground">音轨</dt>
+          {item.audioTracks && item.audioTracks.length > 0 ? (
+            item.audioTracks.map((track, index) => (
+              <dd key={index} className="mt-0.5 text-[13px] text-foreground">
+                {formatAudioTrackText(track)}
+              </dd>
+            ))
+          ) : (
+            <dd className="mt-0.5 text-[13px] text-foreground">{item.audioTracks ? "无音轨" : "未知"}</dd>
+          )}
+        </div>
+      </CollapsibleContent>
+    </Collapsible>
   );
 }
 

@@ -5,6 +5,7 @@ import { promises as fs } from "node:fs";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { sanitizeExpandedFoldersByRoot, sanitizeHistory } from "../src/lib/history.js";
+import { parseMediaInfo, type MediaInfo } from "../src/lib/media-info.js";
 import type { AppSettings, ContextAction, DependencyStatus, ErrorCategory, ItemError, PreviewCacheStats, PreviewRequest, ScanProgress, ThumbnailStatus, ToolStatus, VideoItem } from "../src/shared.js";
 import { PreviewService } from "./preview.js";
 
@@ -14,11 +15,31 @@ const videoExtensions = new Set([".mp4", ".mkv", ".avi", ".mov", ".wmv", ".flv",
 const thumbnailConcurrency = 2;
 const maxScanWarnings = 10;
 
+/** 元信息缓存结构版本：旧版本缓存缺少 v0.8 技术字段时按未命中重新探测补全。 */
+const INFO_VERSION = 1;
+
 type CacheEntry = {
   key: string;
+  /** 元信息结构版本；低于 INFO_VERSION 时视为需重新探测（缩略图仍可复用）。 */
+  infoVersion?: number;
   item: Pick<
     VideoItem,
-    "duration" | "width" | "height" | "thumbnailPath" | "thumbnailStatus" | "metadataStatus" | "metadataError" | "thumbnailError"
+    | "duration"
+    | "width"
+    | "height"
+    | "container"
+    | "videoCodec"
+    | "codecShortName"
+    | "containerBitrate"
+    | "videoBitrate"
+    | "bitrateEstimated"
+    | "frameRate"
+    | "audioTracks"
+    | "thumbnailPath"
+    | "thumbnailStatus"
+    | "metadataStatus"
+    | "metadataError"
+    | "thumbnailError"
   >;
 };
 
@@ -258,9 +279,9 @@ async function checkDependencies(): Promise<DependencyStatus> {
   return dependencyStatus;
 }
 
-async function probeVideo(filePath: string) {
+async function probeVideo(filePath: string, sizeBytes?: number): Promise<MediaInfo> {
   if (!dependencyStatus.ffprobe.available) {
-    throw new ScanError("dependency_missing", "缺少 ffprobe，无法读取视频时长和分辨率。");
+    throw new ScanError("dependency_missing", "缺少 ffprobe，无法读取视频信息。");
   }
   let stdout: string;
   try {
@@ -269,28 +290,18 @@ async function probeVideo(filePath: string) {
       "error",
       "-print_format",
       "json",
-      "-show_entries",
-      "format=duration:stream=width,height",
+      "-show_format",
+      "-show_streams",
       filePath
     ]));
   } catch (error) {
-    throw new ScanError("probe_failed", "无法读取视频时长和分辨率", error);
+    throw new ScanError("probe_failed", "无法读取视频信息", error);
   }
-  let parsed: {
-    format?: { duration?: string };
-    streams?: Array<{ width?: number; height?: number }>;
-  };
   try {
-    parsed = JSON.parse(stdout) as typeof parsed;
+    return parseMediaInfo(stdout, sizeBytes);
   } catch (error) {
     throw new ScanError("probe_failed", "视频信息解析失败", error);
   }
-  const videoStream = parsed.streams?.find((stream) => stream.width && stream.height);
-  return {
-    duration: parsed.format?.duration ? Number(parsed.format.duration) : undefined,
-    width: videoStream?.width,
-    height: videoStream?.height
-  };
 }
 
 async function generateThumbnail(filePath: string, key: string, duration?: number) {
@@ -355,7 +366,11 @@ async function createVideoItem(filePath: string): Promise<VideoItem> {
   }
   const extension = path.extname(filePath).toLowerCase();
   const key = cacheKey(filePath, stat.size, stat.mtimeMs);
-  const cached = metadataCache[filePath]?.key === key ? metadataCache[filePath].item : undefined;
+  const entry = metadataCache[filePath];
+  const cached = entry?.key === key ? entry.item : undefined;
+  // 元信息字段：旧结构版本（infoVersion 缺失或更旧）视为未命中，重扫时自然补全新字段；
+  // 缩略图字段不受影响，命中即可复用，避免旧缓存全量重生成封面。
+  const cachedInfo = entry?.key === key && entry.infoVersion === INFO_VERSION ? entry.item : undefined;
   // 缩略图命中缓存后仍需校验文件真实可用；缺失/损坏则降级为 pending，由扫描流程自动重试。
   let thumbnailStatus: ThumbnailStatus = cached?.thumbnailStatus === "ready" ? "ready" : "pending";
   let thumbnailPath: string | undefined;
@@ -375,13 +390,21 @@ async function createVideoItem(filePath: string): Promise<VideoItem> {
     extension,
     size: stat.size,
     modifiedAt: stat.mtimeMs,
-    duration: cached?.duration,
-    width: cached?.width,
-    height: cached?.height,
+    duration: cachedInfo?.duration,
+    width: cachedInfo?.width,
+    height: cachedInfo?.height,
+    container: cachedInfo?.container,
+    videoCodec: cachedInfo?.videoCodec,
+    codecShortName: cachedInfo?.codecShortName,
+    containerBitrate: cachedInfo?.containerBitrate,
+    videoBitrate: cachedInfo?.videoBitrate,
+    bitrateEstimated: cachedInfo?.bitrateEstimated,
+    frameRate: cachedInfo?.frameRate,
+    audioTracks: cachedInfo?.audioTracks,
     thumbnailPath,
     thumbnailStatus,
-    metadataStatus: cached?.metadataStatus === "ready" ? "ready" : "pending",
-    metadataError: cached?.metadataError,
+    metadataStatus: cachedInfo?.metadataStatus === "ready" ? "ready" : "pending",
+    metadataError: cachedInfo?.metadataError,
     thumbnailError: cached?.thumbnailError
   };
 }
@@ -434,7 +457,7 @@ async function enrichItem(baseItem: VideoItem, token: number, counters: ScanProg
   // 阶段一：元信息探测。失败不阻断封面生成，两阶段状态与错误各自独立。
   if (item.metadataStatus !== "ready") {
     try {
-      const metadata = await probeVideo(item.filePath);
+      const metadata = await probeVideo(item.filePath, item.size);
       item = { ...item, ...metadata, metadataStatus: "ready", metadataError: undefined };
       if (token === activeScanToken) sendItem(item);
     } catch (error) {
@@ -456,10 +479,19 @@ async function enrichItem(baseItem: VideoItem, token: number, counters: ScanProg
   }
   metadataCache[item.filePath] = {
     key,
+    infoVersion: INFO_VERSION,
     item: {
       duration: item.duration,
       width: item.width,
       height: item.height,
+      container: item.container,
+      videoCodec: item.videoCodec,
+      codecShortName: item.codecShortName,
+      containerBitrate: item.containerBitrate,
+      videoBitrate: item.videoBitrate,
+      bitrateEstimated: item.bitrateEstimated,
+      frameRate: item.frameRate,
+      audioTracks: item.audioTracks,
       thumbnailPath: item.thumbnailStatus === "ready" ? path.join(cacheDir, `${key}.jpg`) : undefined,
       thumbnailStatus: item.thumbnailStatus,
       metadataStatus: item.metadataStatus,
@@ -594,7 +626,7 @@ async function handleContextAction(action: ContextAction, filePath: string): Pro
   let updated: VideoItem = { ...item, thumbnailStatus: "pending", thumbnailPath: undefined };
   if (updated.metadataStatus !== "ready") {
     try {
-      const metadata = await probeVideo(filePath);
+      const metadata = await probeVideo(filePath, updated.size);
       updated = { ...updated, ...metadata, metadataStatus: "ready", metadataError: undefined };
     } catch (error) {
       updated = { ...updated, metadataStatus: "failed", metadataError: toItemError(error) };
@@ -608,10 +640,19 @@ async function handleContextAction(action: ContextAction, filePath: string): Pro
   }
   metadataCache[filePath] = {
     key,
+    infoVersion: INFO_VERSION,
     item: {
       duration: updated.duration,
       width: updated.width,
       height: updated.height,
+      container: updated.container,
+      videoCodec: updated.videoCodec,
+      codecShortName: updated.codecShortName,
+      containerBitrate: updated.containerBitrate,
+      videoBitrate: updated.videoBitrate,
+      bitrateEstimated: updated.bitrateEstimated,
+      frameRate: updated.frameRate,
+      audioTracks: updated.audioTracks,
       thumbnailPath: updated.thumbnailStatus === "ready" ? path.join(cacheDir, `${key}.jpg`) : undefined,
       thumbnailStatus: updated.thumbnailStatus,
       metadataStatus: updated.metadataStatus,
