@@ -1,40 +1,67 @@
-# Vid Folder Browser · 视频文件浏览器
+# Vid Folder Browser
 
-一个轻量级桌面应用：选择本地文件夹，递归扫描其中的视频，用封面、文件名、大小、时长和基础信息帮你快速找到目标视频。
+> 一个轻量级的本地视频文件夹浏览器：选中文件夹即扫描，用封面、文件名、时长与技术信息，在几千个视频里快速找到你想要的。
 
-定位是“带封面预览的视频文件夹浏览器”——不是播放器，也不是复杂素材管理器。
+它不是播放器，也不是复杂素材管理器——它是“带封面预览的视频文件夹浏览器”。
 
-> 当前版本：**v0.8.0**（Windows x64）
+[![Version](https://img.shields.io/badge/version-v0.8.0-2ea44f)](https://github.com/csyccc111/VidFolder/releases)
+[![Platform](https://img.shields.io/badge/platform-Windows_x64-0078d6)](https://github.com/csyccc111/VidFolder/releases)
+[![Electron](https://img.shields.io/badge/Electron-36-47848f)](https://www.electronjs.org/)
+[![Release](https://img.shields.io/badge/release-GitHub_Releases-8250df)](https://github.com/csyccc111/VidFolder/releases)
+
+---
+
+## 为什么用它
+
+- **快**：元信息与封面全部缓存，二次扫描秒级完成；缺失/损坏的封面自动自愈重建
+- **悬停即看**：网格或列表里鼠标悬停 400ms，8 帧胶片预览带你快速确认视频内容
+- **深**：详情面板展示容器、编码、码率、帧率、音轨等完整技术信息
+- **稳**：错误分类清晰、任务解耦互不拖累，缺 ffmpeg 也能浏览已有缓存
 
 ## 界面预览
 
-![主界面（演示数据）](docs/v0.5-screenshots/complete.png)
+![主界面（网格视图 + 文件夹树 + 快速访问 + 详情面板）](docs/v0.5-screenshots/complete.png)
 
-> 上图为使用模拟数据生成的界面截图（网格视图 + 文件夹树 + 快速访问 + 详情面板）。
+| 网格视图 | 列表视图 |
+| :---: | :---: |
+| ![网格](docs/v0.5-screenshots/grid.png) | ![列表](docs/v0.5-screenshots/list.png) |
+
+> 截图使用模拟数据生成。
+
+## 快速开始
+
+1. 从 [GitHub Releases](https://github.com/csyccc111/VidFolder/releases) 下载 `Vid.Folder.Browser-*-win-x64.zip`
+2. 解压后运行 `Vid Folder Browser.exe`
+3. 点击 **选择文件夹**，开始浏览
+
+**依赖**：本机需安装 `ffmpeg` 与 `ffprobe` 并加入系统 `PATH`（应用不内置、不自动下载）。缺失时仍可打开应用、浏览已有缓存，悬停预览自动禁用并提示；新视频的封面或元信息将无法生成。
 
 ## 功能
 
 ### 浏览与导航
 
-- 选择本地文件夹，记住上次打开路径，启动自动恢复
-- **层级文件夹树**：按目录层级展示视频文件夹，显示直接/累计视频数；支持展开/折叠、名称过滤、全部折叠、选中节点自动展开祖先、右键“在资源管理器中打开”
-- **快速访问**：自动记录最近成功打开的文件夹（最多 10 条、按时间排序、路径去重），可固定常用文件夹；失效路径会标记提示且不影响启动
-- **拖入打开**：从资源管理器把单个文件夹拖进窗口即可打开（多目标/文件会给出提示，不会修改目录中任何文件）
-- 网格视图 / 列表视图切换，缩略图小/中/大三档
+- 记住上次打开路径，启动自动恢复；支持从资源管理器**拖入单个文件夹**直接打开（只读，不修改任何文件）
+- **层级文件夹树**：按真实目录层级展示，显示直接/累计视频数；展开/折叠、名称过滤、全部折叠、右键“在资源管理器中打开”、完整键盘导航
+- **快速访问**：自动记录最近成功打开的文件夹（上限 10 条），可固定常用项；失效路径自动标记，不影响启动
+- 网格 / 列表视图切换，缩略图小/中/大三档；列表支持表头点击排序
 
-### 扫描与缓存
+### 悬停预览（v0.6 / v0.7）
 
-- 递归扫描 `.mp4` `.mkv` `.avi` `.mov` `.wmv` `.flv` `.webm` `.m4v`
-- 扫描过程增量显示结果，支持刷新与取消；不可读子目录跳过并提示，根目录不可读明确报错
-- `ffprobe` 读取时长、分辨率、容器、编码、码率、帧率、音轨等深度技术信息；`ffmpeg` 生成 16:9 封面
-- 封面与元信息缓存到应用数据目录，按“路径 + 大小 + 修改时间”判断失效；缺失/损坏的封面自动重新生成（自愈）
-- 元信息与封面任务解耦：一方失败不阻断另一方；启动时检测 `ffmpeg`/`ffprobe`，缺失时仍可浏览已有缓存
+- **网格**：悬停封面约 400ms，水平移动鼠标即可“扫”过视频的 8 个代表帧，角标实时显示帧时间
+- **列表**：悬停行浮出横向胶片预览条，当前帧高亮，移出自动关闭
+- 按需抽帧：只有悬停才生成（一次 ffmpeg 调用出 8 帧），扫描阶段零开销；独立缓存上限 512 MiB，按最近使用整组淘汰
+- 工具栏可随时开关；缺 ffmpeg 时自动禁用并说明原因；缓存面板可查看占用并一键清理
+
+### 技术详情（v0.8）
+
+- 详情面板“技术信息”折叠区块：容器（`MP4 (isom)`）、编码（`H.264 (High, L4.1)`）、码率（缺失时按大小/时长估算并标注）、帧率、音轨列表（编码/声道/采样率/语言）
+- 列表视图可选“编码”列（`h264` / `hevc` 短名），筛选面板内开关、设置持久化
+- 基于 `ffprobe` 深度解析（`-show_streams -show_format`），解析层独立可复用；单字段缺失按“未知”兜底，不拖累既有信息
 
 ### 搜索、排序与筛选
 
-- 文件名实时搜索；按文件名、修改时间、大小、时长排序（升降序切换，列表视图表头可点击排序）
-- 按格式、时长（1 分钟内 / 1-20 分钟 / 20 分钟以上）、画面方向与分辨率（横竖屏、方形、720p+、1080p+、4K+）筛选
-- 所有条件可组合，一键清除；筛选面板显示当前生效条件数量
+- 文件名实时搜索；按文件名、修改时间、大小、时长排序（升降序切换）
+- 按**格式**、**时长**（1 分钟内 / 1-20 分钟 / 20 分钟以上）、**画面**（横竖屏、方形、720p+、1080p+、4K+）组合筛选，一键清除
 
 ### 快捷键
 
@@ -45,76 +72,38 @@
 | 复制完整路径 | `Ctrl+C` |
 | 在文件夹树中定位当前视频 | 详情面板按钮 |
 
+### 扫描与缓存
+
+- 递归扫描 `.mp4` `.mkv` `.avi` `.mov` `.wmv` `.flv` `.webm` `.m4v`
+- 扫描增量推送结果，支持刷新与取消；子目录不可读跳过并提示，根目录不可读明确报错
+- 封面与元信息缓存按“路径 + 大小 + 修改时间”失效；缺失/损坏的封面自动重新生成（自愈）
+- 元信息与封面任务解耦：一方失败不阻断另一方；旧缓存自动兼容，重扫自然补全
+
 ### 界面与体验
 
-- 顶部紧凑工具栏；左侧可折叠、可拖拽调宽的侧栏；右侧可收起的详情面板；底部状态栏
-- 窄窗口（< 1100px）下详情自动切换为侧滑覆盖层，不与主内容重叠
-- 树展开状态、侧栏状态、详情栏状态、视图/排序/缩略图偏好全部持久化
+- 紧凑暗色界面（shadcn/ui + Tailwind + Radix），文件夹树可折叠拖宽、详情面板可收起
+- 窄窗口（< 1100px）下详情自动切换为侧滑覆盖层
+- 视图、排序、树展开、侧栏/详情栏状态全部持久化
 - 右键菜单：打开所在目录、默认播放器打开、复制路径、重新生成封面
-- 基于 shadcn/ui（Tailwind + Radix）的统一组件体系，暗色、紧凑、克制
 
-### 悬停多帧预览（v0.6）
-
-- 网格封面停留约 400ms 后激活：在封面内水平移动鼠标即可预览视频不同时间位置的画面，角标实时显示对应时间
-- 按需抽帧：只有悬停才会生成预览帧（一次 ffmpeg 调用生成 8 帧），扫描阶段不预生成；预览失败自动回退静态封面
-- 预览帧独立缓存（`preview-cache/`），默认容量上限 512 MiB，按最近使用整组淘汰
-- 工具栏可开关悬停预览（设置持久化），缺少 ffmpeg 时自动禁用并说明原因；工具栏"预览缓存"面板可查看占用并一键清理
-
-### 列表悬停预览（v0.7）
-
-- 列表视图中悬停行约 400ms 后，在行下方浮出横向胶片预览条（8 帧一排），水平移动切换帧并高亮当前帧，实时显示帧时间
-- 复用 v0.6 的抽帧、缓存与取消机制；与网格预览共用会话、天然互斥；滚动/键盘/排序/筛选变化时立即关闭
-- 列表行新增小缩略图，作为悬停预览的载体
-
-### 技术详情（v0.8）
-
-- 详情面板新增"技术信息"折叠区块（默认收起）：容器格式（如 `MP4 (isom)`）、视频编码（如 `H.264 (High, L4.1)`）、容器/视频流码率（容器级缺失时按大小/时长估算并标注"估算"）、帧率、音轨列表（编码/声道/采样率/语言）
-- 列表视图可显示"编码"列（视频编码短名如 `h264`、`hevc`）：工具栏"筛选"面板内开关，设置持久化
-- 基于 `ffprobe -show_streams -show_format` 深度解析，独立解析层供后续版本复用；全部新字段按"未知"兜底，解析失败不影响既有字段
-- 旧缓存兼容：技术字段缺失时显示"未知"，重扫自动补全，不触发全量缓存失效
-
-## 下载使用
-
-发布版位于 GitHub Releases：
-
-<https://github.com/csyccc111/VidFolder/releases>
-
-下载 `Vid.Folder.Browser-*-win-x64.zip`，解压后运行 `Vid Folder Browser.exe`。
-
-**依赖**：本机需安装 `ffmpeg` 与 `ffprobe` 并加入系统 `PATH`（应用不内置、不自动下载）。缺失时应用仍可打开和浏览已有缓存，但新视频的封面或时长/分辨率可能无法生成。
-
-## 从源码运行
+## 从源码构建
 
 要求：Node.js 18+、npm、Windows、ffmpeg/ffprobe。
 
 ```bash
 npm install        # 安装依赖
-npm run dev        # 启动开发模式（Vite + Electron）
+npm run dev        # 开发模式（Vite + Electron，自动启动）
+npm run build      # 类型检查 + 前端 + 主进程构建
+npm run dist:zip   # 生成 Windows x64 zip 发布包（release/）
+npm test           # 单元测试
+npm run typecheck  # 类型检查
 ```
 
 > PowerShell 执行策略限制时用 `npm.cmd run dev`。
 
-## 构建与打包
+构建产物目录（不入库）：`dist/`（前端）、`dist-electron/`（主进程）、`release/`（发布包）。
 
-```bash
-npm run build      # 类型检查 + 前端 + 主进程构建
-npm run dist:zip   # 生成 Windows x64 zip 发布包（release/）
-```
-
-构建产物目录（不提交到仓库）：
-
-- `dist/`：前端构建结果
-- `dist-electron/`：Electron 主进程构建结果
-- `release/`：electron-builder 发布包
-
-## 测试
-
-```bash
-npm test          # 聚焦单元测试（路径归一化、树构造、历史去重/淘汰）
-npm run typecheck # 类型检查
-```
-
-UI 回归冒烟：`scripts/smoke-dom.cjs`（Electron 无头加载构建产物 + 模拟 IPC，18 项 DOM 断言）、`scripts/smoke-preview.cjs`（v0.6 网格预览回归）、`scripts/smoke-v07.cjs`（v0.7 列表悬停预览，7 项断言）、`scripts/smoke-v08.cjs`（v0.8 技术信息解析 + 详情区块 + 编码列，15 项断言），详见对应 docs/ 验证记录。
+UI 回归冒烟脚本（真实 Electron + ffmpeg，覆盖各版本功能）：`scripts/smoke-dom.cjs`、`scripts/smoke-preview.cjs`、`scripts/smoke-v07.cjs`、`scripts/smoke-v08.cjs`。
 
 ## 项目结构
 
@@ -123,21 +112,20 @@ src/
   App.tsx                # 状态编排与顶层布局
   components/ui/         # shadcn/ui 基础组件（项目内维护）
   components/            # 侧栏、文件夹树、快速访问、网格/列表、详情、状态栏
-  lib/                   # 纯逻辑：路径、树构造、历史记录、筛选排序、格式化、媒体信息解析
+  lib/                   # 纯逻辑：路径、树、历史、筛选排序、格式化、媒体信息解析
   shared.ts              # 渲染进程与主进程共享类型
 electron/
   main.ts                # 主进程：扫描、ffprobe/ffmpeg、缓存、IPC
   preload.cts            # contextBridge 安全暴露 API
+scripts/                 # 冒烟测试与发布工具
+docs/                    # 质量文档与各版本验证记录
 ```
-
-> 发布（GitHub Releases 流程、SHA-256 核验）由维护者执行，步骤见 `docs/release-checklist.md`。
 
 ## 已知限制
 
-- 依赖本机 `ffmpeg` 与 `ffprobe`，不内置、不自动下载。
-- 缓存失效基于“路径 + 大小 + 修改时间”；**内容变化但三者均不变**时可能命中旧缓存（v0.4 明确接受的边界，不引入全文件哈希）。
+- 依赖本机 `ffmpeg` 与 `ffprobe`，不内置、不自动下载（v0.9 规划中）。
+- 缓存失效基于“路径 + 大小 + 修改时间”；内容变化但三者均不变时可能命中旧缓存（明确接受的边界，不引入全文件哈希）。
 - 首次扫描（冷缓存）需逐视频执行 ffprobe/ffmpeg，耗时与视频数量正相关；二次扫描（热缓存）明显更快。
-- 不可读子目录会跳过并提示；根目录不可读直接报告扫描失败。
 - 不提供实时文件监控：文件夹内容变化后需手动刷新。
 
 ## 数据位置
@@ -145,20 +133,17 @@ electron/
 应用数据目录（`%APPDATA%/vid-folder-browser`）：
 
 - `cache/`：封面缩略图
-- `preview-cache/`：悬停多帧预览帧（独立容量治理，可一键清理）
-- `metadata-cache.json`：元信息与缩略图状态（损坏时自动备份为 `.corrupt-<时间戳>` 并回退空缓存；技术字段随重扫自动补全）
-- `settings.json`：上次文件夹、界面偏好、最近/固定文件夹、树展开状态、侧栏与详情栏状态、悬停预览开关、列表编码列开关
+- `preview-cache/`：悬停预览帧（独立容量治理，可一键清理）
+- `metadata-cache.json`：元信息与缩略图状态（损坏时自动备份 `.corrupt-<时间戳>` 并安全回退）
+- `settings.json`：界面偏好与历史记录
 
 ## 质量文档
 
-- `docs/performance-benchmark-guide.md`：大目录性能基准（500/2000/5000+ 三档）
-- `docs/cache-validation-record.md`：缓存失效验证场景与模板
+- `docs/performance-benchmark-guide.md`：大目录性能基准
+- `docs/cache-validation-record.md`：缓存失效验证场景
 - `docs/smoke-test-checklist.md`：发布前人工冒烟清单
-- `docs/release-checklist.md`：发布流程清单
-- `docs/v0.5-ui-regression.md`：v0.5 UI 重构回归记录
-- `docs/v0.6-preview-validation.md`：悬停预览自动化验证与压力测试记录
-- `docs/v0.7-browse-validation.md`：列表预览与进度记忆验证记录
-- `docs/v0.8-detail-validation.md`：技术信息解析与展示验证记录
+- `docs/release-checklist.md`：发布流程（SHA-256 核验）
+- `docs/v0.5-ui-regression.md` / `docs/v0.6-preview-validation.md` / `docs/v0.7-browse-validation.md` / `docs/v0.8-detail-validation.md`：各版本验证记录
 
 ## 非目标功能
 
