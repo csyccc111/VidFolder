@@ -1,6 +1,6 @@
 # Vid Folder Browser v0.8.1 Release Notes
 
-> 2026-09-04 · Windows x64
+> 2026-09-05 · Windows x64
 
 ## 悬停预览移除
 
