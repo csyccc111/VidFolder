@@ -4,6 +4,7 @@ dist-electron
 release*/
 *.tsbuildinfo
 PROJECT_MEMORY.md
+/memory/
 *.log
 .DS_Store
 .workbuddy/
