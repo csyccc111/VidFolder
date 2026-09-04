@@ -1,6 +1,6 @@
 {
   "name": "vid-folder-browser",
-  "version": "0.8.0",
+  "version": "0.8.1",
   "private": true,
   "description": "A lightweight desktop video folder browser with cached thumbnails.",
   "main": "dist-electron/electron/main.js",

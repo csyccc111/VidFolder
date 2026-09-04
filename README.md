@@ -4,7 +4,7 @@
 
 它不是播放器，也不是复杂素材管理器——它是“带封面预览的视频文件夹浏览器”。
 
-[![Version](https://img.shields.io/badge/version-v0.8.0-2ea44f)](https://github.com/csyccc111/VidFolder/releases)
+[![Version](https://img.shields.io/badge/version-v0.8.1-2ea44f)](https://github.com/csyccc111/VidFolder/releases)
 [![Platform](https://img.shields.io/badge/platform-Windows_x64-0078d6)](https://github.com/csyccc111/VidFolder/releases)
 [![Electron](https://img.shields.io/badge/Electron-36-47848f)](https://www.electronjs.org/)
 [![Release](https://img.shields.io/badge/release-GitHub_Releases-8250df)](https://github.com/csyccc111/VidFolder/releases)
