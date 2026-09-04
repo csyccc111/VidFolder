@@ -103,8 +103,6 @@ export type AppSettings = {
   sidebarWidth?: number;
   /** 右侧详情面板开关状态（v0.5 新增）。 */
   detailPaneOpen?: boolean;
-  /** 网格悬停多帧预览开关（v0.6 新增，默认开启）。 */
-  hoverPreviewEnabled?: boolean;
   /** 列表视图显示编码列（v0.8 新增，默认关闭）。 */
   showCodecColumn?: boolean;
 };
@@ -146,44 +144,9 @@ export type FolderValidationResult = {
   isDirectory: boolean;
 };
 
-// ---- v0.6 悬停多帧预览协议 ----
-
-/** 单帧预览信息。 */
-export type PreviewFrame = {
-  index: number;
-  /** 帧对应的视频时间点（秒）。 */
-  timestamp: number;
-  imageUrl: string;
-};
-
-export type PreviewState = "loading" | "ready" | "failed" | "cancelled";
-
-export type PreviewRequest = {
-  requestId: string;
-  videoId: string;
-  filePath: string;
-};
-
-export type PreviewResult = {
-  requestId: string;
-  videoId: string;
-  state: PreviewState;
-  frames: PreviewFrame[];
-  /** 主进程计算得到的源 key（与前端无关的受控值）。 */
-  sourceKey?: string;
-  error?: ItemError;
-};
-
-export type PreviewCacheStats = {
-  bytes: number;
-  videoCount: number;
-  frameCount: number;
-};
-
 export type IpcEvents = {
   "scan:progress": ScanProgress;
   "scan:item": VideoItem;
-  "preview:result": PreviewResult;
 };
 
 export type ElectronApi = {
@@ -197,13 +160,8 @@ export type ElectronApi = {
   cancelScan: () => Promise<void>;
   contextAction: (action: ContextAction, filePath: string) => Promise<VideoItem | undefined>;
   getPathForFile: (file: File) => string;
-  previewRequest: (request: PreviewRequest) => Promise<void>;
-  previewCancel: (requestId: string) => Promise<void>;
-  previewGetStats: () => Promise<PreviewCacheStats>;
-  previewClear: () => Promise<PreviewCacheStats>;
   onProgress: (callback: (progress: ScanProgress) => void) => () => void;
   onItem: (callback: (item: VideoItem) => void) => () => void;
-  onPreviewResult: (callback: (result: PreviewResult) => void) => () => void;
 };
 
 declare global {

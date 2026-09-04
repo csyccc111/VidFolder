@@ -56,7 +56,7 @@ app.whenReady().then(async () => {
     const settings = {
       lastFolder: "C:\\Videos", viewMode: "list", sortKey: "fileName", ascending: true,
       thumbSize: "medium", sidebarOpen: true, sidebarWidth: 260, detailPaneOpen: true,
-      hoverPreviewEnabled: true, showCodecColumn: false, recentFolders: []
+      showCodecColumn: false, recentFolders: []
     };
     ipcMain.handle("settings:get", () => settings);
     ipcMain.handle("settings:update", (_e, next) => { Object.assign(settings, next); return settings; });
@@ -67,10 +67,6 @@ app.whenReady().then(async () => {
     ipcMain.handle("scan:start", () => undefined);
     ipcMain.handle("scan:cancel", () => undefined);
     ipcMain.handle("video:context-action", () => undefined);
-    ipcMain.handle("preview:request", () => undefined);
-    ipcMain.handle("preview:cancel", () => undefined);
-    ipcMain.handle("preview:stats", () => ({ bytes: 0, videoCount: 0, frameCount: 0 }));
-    ipcMain.handle("preview:clear", () => ({ bytes: 0, videoCount: 0, frameCount: 0 }));
 
     const win = new BrowserWindow({
       width: 1280, height: 800, show: false, backgroundColor: "#101216",

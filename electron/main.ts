@@ -6,8 +6,7 @@ import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { sanitizeExpandedFoldersByRoot, sanitizeHistory } from "../src/lib/history.js";
 import { parseMediaInfo, type MediaInfo } from "../src/lib/media-info.js";
-import type { AppSettings, ContextAction, DependencyStatus, ErrorCategory, ItemError, PreviewCacheStats, PreviewRequest, ScanProgress, ThumbnailStatus, ToolStatus, VideoItem } from "../src/shared.js";
-import { PreviewService } from "./preview.js";
+import type { AppSettings, ContextAction, DependencyStatus, ErrorCategory, ItemError, ScanProgress, ThumbnailStatus, ToolStatus, VideoItem } from "../src/shared.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const isDev = process.env.VITE_DEV_SERVER_URL || !app.isPackaged;
@@ -87,7 +86,6 @@ let metadataCachePath = "";
 let metadataCache: Record<string, CacheEntry> = {};
 let thumbnailQueue: Array<() => Promise<void>> = [];
 let runningThumbnails = 0;
-let previewService: PreviewService | undefined;
 let dependencyStatus: DependencyStatus = {
   ffmpeg: { available: false },
   ffprobe: { available: false },
@@ -97,15 +95,6 @@ let dependencyStatus: DependencyStatus = {
 protocol.registerSchemesAsPrivileged([
   {
     scheme: "thumb",
-    privileges: {
-      standard: true,
-      secure: true,
-      supportFetchAPI: true,
-      corsEnabled: true
-    }
-  },
-  {
-    scheme: "preview",
     privileges: {
       standard: true,
       secure: true,
@@ -177,22 +166,8 @@ async function ensureAppFiles() {
   settingsPath = path.join(userData, "settings.json");
   metadataCachePath = path.join(userData, "metadata-cache.json");
   await fs.mkdir(cacheDir, { recursive: true });
-  // 预览缓存独立于主封面缓存目录，生命周期与容量治理互不影响。
-  previewService = new PreviewService({
-    cacheDir: path.join(userData, "preview-cache"),
-    isKnownVideoPath: (filePath) => Boolean(metadataCache[filePath]),
-    getDuration: (filePath) => metadataCache[filePath]?.item.duration,
-    probeDuration: async (filePath) => {
-      try {
-        const metadata = await probeVideo(filePath);
-        return metadata.duration;
-      } catch {
-        return undefined;
-      }
-    },
-    isFfmpegAvailable: () => dependencyStatus.ffmpeg.available
-  });
-  await previewService.initialize();
+  // 悬停预览已移除：清掉历史版本遗留的预览缓存目录，避免占用磁盘。
+  await fs.rm(path.join(userData, "preview-cache"), { recursive: true, force: true }).catch(() => {});
   try {
     const parsed = JSON.parse(await fs.readFile(metadataCachePath, "utf8")) as Record<string, CacheEntry>;
     let migrated = false;
@@ -690,10 +665,6 @@ app.whenReady().then(async () => {
   await ensureAppFiles();
   await checkDependencies();
   await registerThumbnailProtocol();
-  if (previewService) {
-    previewService.registerProtocol();
-    previewService.onResult = (result) => mainWindow?.webContents.send("preview:result", result);
-  }
   ipcMain.handle("settings:get", readSettings);
   ipcMain.handle("settings:update", async (_event, settings: Partial<AppSettings>) => updateSettings(settings));
   ipcMain.handle("dependencies:get", async () => dependencyStatus.checkedAt ? dependencyStatus : checkDependencies());
@@ -719,19 +690,7 @@ app.whenReady().then(async () => {
     sendProgress({ state: "cancelled", found: 0, processed: 0, thumbnailsReady: 0, failures: 0, message: "已取消", warningCount: 0, warnings: [] });
   });
   ipcMain.handle("video:context-action", async (_event, action: ContextAction, filePath: string) => handleContextAction(action, filePath));
-  ipcMain.handle("preview:request", async (_event, request: PreviewRequest) => {
-    await previewService?.request(request);
-  });
-  ipcMain.handle("preview:cancel", async (_event, requestId: string) => {
-    previewService?.cancel(requestId);
-  });
-  ipcMain.handle("preview:stats", async (): Promise<PreviewCacheStats> => previewService?.stats() ?? { bytes: 0, videoCount: 0, frameCount: 0 });
-  ipcMain.handle("preview:clear", async (): Promise<PreviewCacheStats> => previewService?.clear() ?? { bytes: 0, videoCount: 0, frameCount: 0 });
   await createWindow();
-});
-
-app.on("will-quit", () => {
-  previewService?.dispose();
 });
 
 app.on("window-all-closed", () => {

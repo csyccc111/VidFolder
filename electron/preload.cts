@@ -4,9 +4,6 @@ import type {
   ContextAction,
   ElectronApi,
   FolderValidationResult,
-  PreviewCacheStats,
-  PreviewRequest,
-  PreviewResult,
   ScanProgress,
   VideoItem
 } from "../src/shared";
@@ -24,10 +21,6 @@ const api: ElectronApi = {
   cancelScan: () => ipcRenderer.invoke("scan:cancel"),
   contextAction: (action: ContextAction, filePath: string) => ipcRenderer.invoke("video:context-action", action, filePath),
   getPathForFile: (file: File) => webUtils.getPathForFile(file),
-  previewRequest: (request: PreviewRequest) => ipcRenderer.invoke("preview:request", request),
-  previewCancel: (requestId: string) => ipcRenderer.invoke("preview:cancel", requestId),
-  previewGetStats: () => ipcRenderer.invoke("preview:stats") as Promise<PreviewCacheStats>,
-  previewClear: () => ipcRenderer.invoke("preview:clear") as Promise<PreviewCacheStats>,
   onProgress: (callback: (progress: ScanProgress) => void) => {
     const listener = (_event: IpcRendererEvent, progress: ScanProgress) => callback(progress);
     ipcRenderer.on("scan:progress", listener);
@@ -37,11 +30,6 @@ const api: ElectronApi = {
     const listener = (_event: IpcRendererEvent, item: VideoItem) => callback(item);
     ipcRenderer.on("scan:item", listener);
     return () => ipcRenderer.off("scan:item", listener);
-  },
-  onPreviewResult: (callback: (result: PreviewResult) => void) => {
-    const listener = (_event: IpcRendererEvent, result: PreviewResult) => callback(result);
-    ipcRenderer.on("preview:result", listener);
-    return () => ipcRenderer.off("preview:result", listener);
   }
 };
 
