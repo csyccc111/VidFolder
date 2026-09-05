@@ -2,6 +2,10 @@ export type ThumbnailStatus = "pending" | "ready" | "failed";
 export type MetadataStatus = "pending" | "ready" | "failed";
 export type ScanState = "idle" | "scanning" | "complete" | "cancelled" | "error";
 
+/** 依赖工具与来源类型由 deps-core 单一定义（v0.9）。 */
+export type { DependencySource, DependencyTool } from "./lib/deps-core.js";
+import type { DependencySource, DependencyTool } from "./lib/deps-core.js";
+
 /**
  * 可预期错误的稳定分类（v0.4 新增）。
  * 用户可见文案与原始技术详情分离：message 面向用户，detail 仅用于诊断。
@@ -13,6 +17,7 @@ export type ErrorCategory =
   | "probe_failed"
   | "thumbnail_failed"
   | "cache_invalid"
+  | "download_failed"
   | "unknown";
 
 export type ItemError = {
@@ -105,6 +110,18 @@ export type AppSettings = {
   detailPaneOpen?: boolean;
   /** 列表视图显示编码列（v0.8 新增，默认关闭）。 */
   showCodecColumn?: boolean;
+  /** 用户手动指定的 ffmpeg.exe 路径（v0.9 新增）。 */
+  customFfmpegPath?: string;
+  /** 用户手动指定的 ffprobe.exe 路径（v0.9 新增）。 */
+  customFfprobePath?: string;
+  /** 上次探测结果持久化（v0.9 新增，启动时先验证再用，失效重探）。 */
+  resolvedDependencies?: ResolvedDependencyRecord;
+};
+
+/** 上次探测的依赖解析结果（v0.9）。 */
+export type ResolvedDependencyRecord = {
+  ffmpeg?: { path: string; source: DependencySource; version?: string };
+  ffprobe?: { path: string; source: DependencySource; version?: string };
 };
 
 /** 最近/固定文件夹记录（v0.5 新增）。 */
@@ -129,12 +146,34 @@ export type ToolStatus = {
   available: boolean;
   version?: string;
   error?: string;
+  /** 依赖来源（v0.9 新增）：vendor=应用内 / custom=手动指定 / path=系统 PATH / common=常见位置。 */
+  source?: DependencySource;
+  /** 解析出的可执行文件绝对路径（v0.9 新增）。 */
+  resolvedPath?: string;
 };
 
 export type DependencyStatus = {
   ffmpeg: ToolStatus;
   ffprobe: ToolStatus;
   checkedAt: number;
+  /** 应用内 vendor 版本信息（v0.9 新增）：active=false 表示已下载但当前被"恢复系统版本"停用。 */
+  vendor?: {
+    version: string;
+    active: boolean;
+  };
+};
+
+/** 下载阶段（v0.9）。 */
+export type DependencyDownloadPhase = "idle" | "downloading" | "verifying" | "extracting" | "done" | "failed" | "cancelled";
+
+/** ffmpeg 应用内下载状态（v0.9），主进程通过 deps:download-progress 推送。 */
+export type DependencyDownloadState = {
+  phase: DependencyDownloadPhase;
+  receivedBytes: number;
+  /** 总字节数；未知为 0。 */
+  totalBytes: number;
+  bytesPerSecond: number;
+  error?: ItemError;
 };
 
 export type ContextAction = "showInFolder" | "openVideo" | "copyPath" | "regenerateThumbnail";
@@ -147,6 +186,8 @@ export type FolderValidationResult = {
 export type IpcEvents = {
   "scan:progress": ScanProgress;
   "scan:item": VideoItem;
+  "deps:status-changed": DependencyStatus;
+  "deps:download-progress": DependencyDownloadState;
 };
 
 export type ElectronApi = {
@@ -160,6 +201,15 @@ export type ElectronApi = {
   cancelScan: () => Promise<void>;
   contextAction: (action: ContextAction, filePath: string) => Promise<VideoItem | undefined>;
   getPathForFile: (file: File) => string;
+  redetectDependencies: () => Promise<DependencyStatus>;
+  startDependencyDownload: () => Promise<void>;
+  cancelDependencyDownload: () => Promise<void>;
+  getDependencyDownloadState: () => Promise<DependencyDownloadState>;
+  restoreSystemDependencies: () => Promise<DependencyStatus>;
+  enableVendorDependencies: () => Promise<DependencyStatus>;
+  setCustomDependencyPath: (tool: DependencyTool, filePath: string | undefined) => Promise<DependencyStatus>;
+  onDependenciesChanged: (callback: (status: DependencyStatus) => void) => () => void;
+  onDependencyDownloadStateChanged: (callback: (state: DependencyDownloadState) => void) => () => void;
   onProgress: (callback: (progress: ScanProgress) => void) => () => void;
   onItem: (callback: (item: VideoItem) => void) => () => void;
 };

@@ -1,13 +1,15 @@
-import { AlertCircle, AlertTriangle, Wrench } from "lucide-react";
+import { AlertCircle, AlertTriangle, Download, Wrench } from "lucide-react";
 import type { DependencyStatus, ScanProgress } from "@/shared";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
+import { Button } from "@/components/ui/button";
 
 export type ScanNoticesProps = {
   dependencyStatus?: DependencyStatus;
   progress: ScanProgress;
+  onOpenDependencies?: () => void;
 };
 
-export function ScanNotices({ dependencyStatus, progress }: ScanNoticesProps) {
+export function ScanNotices({ dependencyStatus, progress, onOpenDependencies }: ScanNoticesProps) {
   const missingTools = [
     dependencyStatus?.ffmpeg.available === false ? "ffmpeg" : undefined,
     dependencyStatus?.ffprobe.available === false ? "ffprobe" : undefined
@@ -19,8 +21,19 @@ export function ScanNotices({ dependencyStatus, progress }: ScanNoticesProps) {
         <Alert className="border-amber-500/40 bg-amber-500/10 py-2 text-amber-300">
           <Wrench className="size-4" />
           <AlertTitle className="text-xs">缺少 {missingTools.join("、")}</AlertTitle>
-          <AlertDescription className="text-xs text-amber-300/90">
-            已有缓存仍可浏览，但新视频的封面或时长/分辨率可能无法生成。
+          <AlertDescription className="flex items-center justify-between gap-2 text-xs text-amber-300/90">
+            <span>已有缓存仍可浏览，但新视频的封面或时长/分辨率可能无法生成。</span>
+            {onOpenDependencies && (
+              <Button
+                size="sm"
+                variant="outline"
+                className="h-6 shrink-0 gap-1 border-amber-500/40 px-2 text-xs text-amber-300 hover:bg-amber-500/10 hover:text-amber-200"
+                onClick={onOpenDependencies}
+              >
+                <Download className="size-3.5" />
+                下载 ffmpeg
+              </Button>
+            )}
           </AlertDescription>
         </Alert>
       )}

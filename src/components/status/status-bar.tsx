@@ -1,4 +1,4 @@
-import type { DependencyStatus, ScanProgress } from "@/shared";
+import type { DependencyStatus, ScanProgress, ToolStatus } from "@/shared";
 import { Progress } from "@/components/ui/progress";
 
 export type StatusBarProps = {
@@ -7,9 +7,24 @@ export type StatusBarProps = {
   shownCount: number;
   dependencyStatus?: DependencyStatus;
   notice?: string;
+  onOpenDependencies?: () => void;
 };
 
-export function StatusBar({ folderPath, progress, shownCount, dependencyStatus, notice }: StatusBarProps) {
+const sourceLabels: Record<NonNullable<ToolStatus["source"]>, string> = {
+  vendor: "应用内",
+  custom: "手动指定",
+  path: "系统",
+  common: "常见位置"
+};
+
+/** 依赖徽标文案：应用内 n8.1.2 / 系统 7.1.1 / 未检测到（v0.9 细化）。 */
+function dependencyLabel(name: string, status: ToolStatus): string {
+  if (!status.available) return `缺少 ${name}`;
+  const source = status.source ? sourceLabels[status.source] : "";
+  return [name, source, status.version].filter(Boolean).join(" ");
+}
+
+export function StatusBar({ folderPath, progress, shownCount, dependencyStatus, notice, onOpenDependencies }: StatusBarProps) {
   const isScanning = progress.state === "scanning";
   const percent =
     isScanning && progress.found > 0
@@ -37,18 +52,20 @@ export function StatusBar({ folderPath, progress, shownCount, dependencyStatus, 
       <span className="shrink-0">封面 {progress.thumbnailsReady}/{progress.found}</span>
       {progress.failures > 0 && <span className="shrink-0 text-destructive">失败 {progress.failures}</span>}
       {dependencyStatus && (
-        <>
-          <span className="shrink-0">
-            <span className={dependencyStatus.ffmpeg.available ? "text-emerald-400" : "text-destructive"}>
-              {dependencyStatus.ffmpeg.available ? "ffmpeg 正常" : "缺少 ffmpeg"}
-            </span>
+        <button
+          type="button"
+          className="flex shrink-0 items-center gap-3 rounded px-1 outline-none hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/60"
+          onClick={onOpenDependencies}
+          title="查看依赖详情与下载选项"
+          aria-label="依赖管理"
+        >
+          <span className={dependencyStatus.ffmpeg.available ? "text-emerald-400" : "text-destructive"}>
+            {dependencyLabel("ffmpeg", dependencyStatus.ffmpeg)}
           </span>
-          <span className="shrink-0">
-            <span className={dependencyStatus.ffprobe.available ? "text-emerald-400" : "text-destructive"}>
-              {dependencyStatus.ffprobe.available ? "ffprobe 正常" : "缺少 ffprobe"}
-            </span>
+          <span className={dependencyStatus.ffprobe.available ? "text-emerald-400" : "text-destructive"}>
+            {dependencyLabel("ffprobe", dependencyStatus.ffprobe)}
           </span>
-        </>
+        </button>
       )}
       {notice && <span className="shrink-0 text-emerald-400">{notice}</span>}
     </footer>

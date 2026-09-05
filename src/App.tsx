@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type {
   ContextAction,
+  DependencyDownloadState,
   DependencyStatus,
   FolderHistoryEntry,
   FolderTreeNode,
@@ -8,6 +9,7 @@ import type {
   ScanProgress,
   VideoItem
 } from "@/shared";
+import type { DependencyTool } from "@/lib/deps-core";
 import {
   DurationFilter,
   FilterState,
@@ -34,6 +36,7 @@ import { VideoList } from "@/components/browser/video-list";
 import { EmptyState, EmptyStateKind } from "@/components/browser/empty-state";
 import { DetailPanel } from "@/components/details/detail-panel";
 import { StatusBar } from "@/components/status/status-bar";
+import { DepsDialog } from "@/components/status/deps-dialog";
 import { ScanNotices } from "@/components/status/scan-notices";
 import { Sidebar, SIDEBAR_DEFAULT_WIDTH, SIDEBAR_MAX_WIDTH, SIDEBAR_MIN_WIDTH } from "@/components/layout/sidebar";
 
@@ -48,6 +51,13 @@ const emptyProgress: ScanProgress = {
 };
 
 const NARROW_WINDOW_WIDTH = 1100;
+
+const idleDownloadState: DependencyDownloadState = {
+  phase: "idle",
+  receivedBytes: 0,
+  totalBytes: 0,
+  bytesPerSecond: 0
+};
 
 export default function App() {
   const [folderPath, setFolderPath] = useState("");
@@ -66,6 +76,8 @@ export default function App() {
   const [notice, setNotice] = useState("");
   const [bridgeReady, setBridgeReady] = useState(true);
   const [dependencyStatus, setDependencyStatus] = useState<DependencyStatus>();
+  const [depsDialogOpen, setDepsDialogOpen] = useState(false);
+  const [downloadState, setDownloadState] = useState<DependencyDownloadState>(idleDownloadState);
   const [recentFolders, setRecentFolders] = useState<FolderHistoryEntry[]>([]);
   const [invalidPaths, setInvalidPaths] = useState<Set<string>>(new Set());
   const [expandedByRoot, setExpandedByRoot] = useState<Record<string, string[]>>({});
@@ -117,6 +129,12 @@ export default function App() {
         return copy;
       });
     });
+    const disposeStatus = window.videoBrowser.onDependenciesChanged((status) => {
+      setDependencyStatus(status);
+    });
+    const disposeDownload = window.videoBrowser.onDependencyDownloadStateChanged((state) => {
+      setDownloadState(state);
+    });
     if (!initialized.current) {
       initialized.current = true;
       window.videoBrowser.getSettings().then((settings) => {
@@ -143,6 +161,8 @@ export default function App() {
     return () => {
       disposeProgress();
       disposeItem();
+      disposeStatus();
+      disposeDownload();
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -489,6 +509,44 @@ export default function App() {
     }
   }
 
+  // ---- v0.9 依赖管理 ----
+
+  function applyDependencyStatus(status: DependencyStatus) {
+    setDependencyStatus(status);
+  }
+
+  async function runDependencyAction(action: () => Promise<DependencyStatus>) {
+    if (!window.videoBrowser) {
+      setBridgeReady(false);
+      return;
+    }
+    applyDependencyStatus(await action());
+  }
+
+  function handleRedetectDependencies() {
+    void runDependencyAction(() => window.videoBrowser!.redetectDependencies());
+  }
+
+  function handleStartDependencyDownload() {
+    void window.videoBrowser?.startDependencyDownload();
+  }
+
+  function handleCancelDependencyDownload() {
+    void window.videoBrowser?.cancelDependencyDownload();
+  }
+
+  function handleRestoreSystemDependencies() {
+    void runDependencyAction(() => window.videoBrowser!.restoreSystemDependencies());
+  }
+
+  function handleEnableVendorDependencies() {
+    void runDependencyAction(() => window.videoBrowser!.enableVendorDependencies());
+  }
+
+  function handleSetCustomDependencyPath(tool: DependencyTool, filePath: string | undefined) {
+    void runDependencyAction(() => window.videoBrowser!.setCustomDependencyPath(tool, filePath));
+  }
+
   function emptyStateKind(): EmptyStateKind {
     if (!bridgeReady) return "no-bridge";
     if (!folderPath) return "no-folder";
@@ -539,7 +597,7 @@ export default function App() {
         onToggleCodecColumn={() => setShowCodecColumn((value) => !value)}
       />
 
-      <ScanNotices dependencyStatus={dependencyStatus} progress={progress} />
+      <ScanNotices dependencyStatus={dependencyStatus} progress={progress} onOpenDependencies={() => setDepsDialogOpen(true)} />
 
       <div className="flex min-h-0 flex-1">
         <Sidebar
@@ -632,6 +690,20 @@ export default function App() {
         shownCount={filteredItems.length}
         dependencyStatus={dependencyStatus}
         notice={notice}
+        onOpenDependencies={() => setDepsDialogOpen(true)}
+      />
+
+      <DepsDialog
+        open={depsDialogOpen}
+        onOpenChange={setDepsDialogOpen}
+        dependencyStatus={dependencyStatus}
+        downloadState={downloadState}
+        onRedetect={handleRedetectDependencies}
+        onStartDownload={handleStartDependencyDownload}
+        onCancelDownload={handleCancelDependencyDownload}
+        onRestoreSystem={handleRestoreSystemDependencies}
+        onEnableVendor={handleEnableVendorDependencies}
+        onSetCustomPath={handleSetCustomDependencyPath}
       />
 
       {dragState && (
