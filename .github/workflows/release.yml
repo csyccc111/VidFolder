@@ -1,0 +1,147 @@
+name: Release
+
+# 打 tag（v*）自动构建发布：typecheck/test/build 门禁 → zip + NSIS 双产物 → SHA-256 → GitHub Release。
+# workflow_dispatch 支持 dry_run 试跑（只构建校验，不创建 Release）。
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: "试跑模式（只构建与校验，不发布）"
+        type: boolean
+        default: true
+
+permissions:
+  contents: write
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  release:
+    runs-on: windows-latest
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Resolve version
+        id: version
+        run: |
+          if [ "${{ github.event_name }}" = "push" ]; then
+            VERSION="${GITHUB_REF_NAME#v}"
+            echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+            echo "tag=${GITHUB_REF_NAME}" >> "$GITHUB_OUTPUT"
+          else
+            VERSION=$(node -p "require('./package.json').version")
+            echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+            echo "tag=v$VERSION" >> "$GITHUB_OUTPUT"
+          fi
+          echo "Resolved version: $VERSION"
+
+      - name: Verify tag matches package.json
+        if: ${{ github.event_name == 'push' }}
+        run: node scripts/verify-tag-version.cjs "${{ github.ref_name }}"
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Unit tests
+        run: npm test
+
+      - name: Build
+        run: npm run build
+
+      - name: Package (zip + nsis)
+        env:
+          # 本机构建需要的安全删除 shim 规避在 CI 干净环境不需要；electronDist 默认下载即可。
+          NODE_OPTIONS: --use-system-ca
+        run: npx electron-builder --win zip nsis
+
+      - name: Checksums
+        id: checksums
+        run: |
+          VERSION="${{ steps.version.outputs.version }}"
+          ZIP="release/Vid.Folder.Browser-${VERSION}-win-x64.zip"
+          EXE="release/Vid.Folder.Browser-Setup-${VERSION}-win-x64.exe"
+          for f in "$ZIP" "$EXE"; do
+            if [ ! -f "$f" ]; then
+              echo "::error::产物缺失：$f"
+              exit 1
+            fi
+          done
+          {
+            echo "### Artifacts"
+            echo "| File | Size | SHA-256 |"
+            echo "|---|---|---|"
+            echo "| $(basename "$ZIP") | $(stat -c%s "$ZIP") | $(sha256sum "$ZIP" | cut -d' ' -f1) |"
+            echo "| $(basename "$EXE") | $(stat -c%s "$EXE") | $(sha256sum "$EXE" | cut -d' ' -f1) |"
+          } >> "$GITHUB_STEP_SUMMARY"
+          echo "zip=$ZIP" >> "$GITHUB_OUTPUT"
+          echo "exe=$EXE" >> "$GITHUB_OUTPUT"
+
+      - name: Resolve release notes
+        id: notes
+        run: |
+          NOTES=$(node scripts/release-notes.cjs "${{ steps.version.outputs.version }}")
+          echo "notes=$NOTES" >> "$GITHUB_OUTPUT"
+          echo "Notes file: $NOTES"
+
+      - name: Dry run stop
+        if: ${{ github.event_name == 'workflow_dispatch' && inputs.dry_run }}
+        run: echo "dry_run=true，构建与校验全部通过，跳过发布。" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Create or update release
+        if: ${{ github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && !inputs.dry_run) }}
+        run: |
+          TAG="${{ steps.version.outputs.tag }}"
+          NOTES="${{ steps.notes.outputs.notes }}"
+          ZIP="${{ steps.checksums.outputs.zip }}"
+          EXE="${{ steps.checksums.outputs.exe }}"
+          if gh release view "$TAG" --repo "$GITHUB_REPOSITORY" > /dev/null 2>&1; then
+            echo "Release $TAG 已存在：更新 notes 并覆盖上传资产。"
+            gh release edit "$TAG" --repo "$GITHUB_REPOSITORY" --title "Vid Folder Browser $TAG" --notes-file "$NOTES"
+            gh release upload "$TAG" --repo "$GITHUB_REPOSITORY" --clobber "$ZIP" "$EXE"
+          else
+            gh release create "$TAG" --repo "$GITHUB_REPOSITORY" \
+              --title "Vid Folder Browser $TAG" \
+              --notes-file "$NOTES" \
+              --target "$GITHUB_SHA" \
+              "$ZIP" "$EXE"
+          fi
+
+      - name: Verify release assets
+        if: ${{ github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && !inputs.dry_run) }}
+        run: |
+          TAG="${{ steps.version.outputs.tag }}"
+          ZIP="${{ steps.checksums.outputs.zip }}"
+          EXE="${{ steps.checksums.outputs.exe }}"
+          VERIFY() {
+            NAME=$(basename "$1")
+            LOCAL_SIZE=$(stat -c%s "$1")
+            REMOTE_JSON=$(gh api "repos/$GITHUB_REPOSITORY/releases/tags/$TAG" --jq ".assets[] | select(.name==\"$NAME\") | {size, name}")
+            REMOTE_SIZE=$(echo "$REMOTE_JSON" | grep -o '"size":[0-9]*' | cut -d: -f2)
+            if [ "$LOCAL_SIZE" != "$REMOTE_SIZE" ]; then
+              echo "::error::资产大小不一致：$NAME 本地 $LOCAL_SIZE 远端 $REMOTE_SIZE"
+              exit 1
+            fi
+            echo "OK: $NAME ($REMOTE_SIZE bytes)"
+          }
+          VERIFY "$ZIP"
+          VERIFY "$EXE"
+          echo "发布核验通过：$TAG" >> "$GITHUB_STEP_SUMMARY"

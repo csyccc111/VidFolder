@@ -1,5 +1,7 @@
 # Vid Folder Browser
 
+<p align="center"><img src="assets/icon.png" width="96" alt="Vid Folder Browser 图标"></p>
+
 > 一个轻量级的本地视频文件夹浏览器：选中文件夹即扫描，用封面、文件名、时长与技术信息，在几千个视频里快速找到你想要的。
 
 它不是播放器，也不是复杂素材管理器——它是“带封面预览的视频文件夹浏览器”。
@@ -54,6 +56,12 @@
 
 **GPL 声明**：应用内下载的 ffmpeg 二进制来自 BtbN/FFmpeg-Builds（GPL v3 构建）。本项目不随安装包分发该二进制，仅在用户明确确认后下载安装到应用数据目录；来源与版本信息见应用内依赖管理面板。
 
+### 更新检查（v0.10）
+
+- 启动后延迟静默检查 GitHub Releases（可关闭），工具栏"检查更新"可随时手动触发
+- 新版本提示含更新摘要，一键打开下载页；支持"忽略此版本"
+- 只提示与引导，不自动下载安装；检查失败静默不打扰
+
 ### 技术详情（v0.8）
 
 - 详情面板“技术信息”折叠区块：容器（`MP4 (isom)`）、编码（`H.264 (High, L4.1)`）、码率（缺失时按大小/时长估算并标注）、帧率、音轨列表（编码/声道/采样率/语言）
@@ -103,9 +111,11 @@ npm run typecheck  # 类型检查
 
 > PowerShell 执行策略限制时用 `npm.cmd run dev`。
 
+**发布（维护者）**：更新版本号与 `docs/RELEASE-NOTES-v<版本>.md` 后打 tag 推送（`git tag v<版本> && git push origin v<版本>`），GitHub Actions 自动构建 zip 与 NSIS 安装包、计算 SHA-256、创建 Release 并核验资产；详见 `docs/release-checklist.md`。
+
 构建产物目录（不入库）：`dist/`（前端）、`dist-electron/`（主进程）、`release/`（发布包）。
 
-UI 回归冒烟脚本（真实 Electron + ffmpeg，覆盖各版本功能）：`scripts/smoke-dom.cjs`、`scripts/smoke-v08.cjs`、`scripts/smoke-v09.cjs`；依赖下载端到端验证：`scripts/test-download-e2e.cjs`（真实网络下载约 76MB）。
+UI 回归冒烟脚本（真实 Electron + ffmpeg，覆盖各版本功能）：`scripts/smoke-dom.cjs`、`scripts/smoke-v08.cjs`、`scripts/smoke-v09.cjs`、`scripts/smoke-v10.cjs`；依赖下载端到端验证：`scripts/test-download-e2e.cjs`（真实网络下载约 76MB）。
 
 ## 项目结构
 

@@ -67,6 +67,10 @@ app.whenReady().then(async () => {
     ipcMain.handle("scan:start", () => undefined);
     ipcMain.handle("scan:cancel", () => undefined);
     ipcMain.handle("video:context-action", () => undefined);
+    ipcMain.handle("update:check", () => ({ state: "latest", checkedAt: Date.now() }));
+    ipcMain.handle("update:state", () => ({ state: "idle", checkedAt: 0 }));
+    ipcMain.handle("update:ignore", () => ({ state: "idle", checkedAt: 0 }));
+    ipcMain.handle("update:open-release", () => undefined);
 
     const win = new BrowserWindow({
       width: 1280, height: 800, show: false, backgroundColor: "#101216",

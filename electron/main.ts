@@ -6,6 +6,7 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 import type { AppSettings, ContextAction, ErrorCategory, ItemError, ScanProgress, ThumbnailStatus, VideoItem } from "../src/shared.js";
 import type { DependencyTool } from "../src/lib/deps-core.js";
 import { DependencyManager } from "./deps.js";
+import { UpdateChecker } from "./updater.js";
 import { sanitizeExpandedFoldersByRoot, sanitizeHistory } from "../src/lib/history.js";
 import { parseMediaInfo, type MediaInfo } from "../src/lib/media-info.js";
 
@@ -88,6 +89,7 @@ let metadataCache: Record<string, CacheEntry> = {};
 let thumbnailQueue: Array<() => Promise<void>> = [];
 let runningThumbnails = 0;
 let depsManager: DependencyManager | undefined;
+let updateChecker: UpdateChecker | undefined;
 
 protocol.registerSchemesAsPrivileged([
   {
@@ -171,6 +173,12 @@ async function ensureAppFiles() {
     updateSettings,
     onStatusChanged: (status) => mainWindow?.webContents.send("deps:status-changed", status),
     onDownloadStateChanged: (state) => mainWindow?.webContents.send("deps:download-progress", state)
+  });
+  updateChecker = new UpdateChecker({
+    currentVersion: app.getVersion(),
+    readSettings,
+    updateSettings,
+    onStatus: (outcome) => mainWindow?.webContents.send("update:status", outcome)
   });
   try {
     const parsed = JSON.parse(await fs.readFile(metadataCachePath, "utf8")) as Record<string, CacheEntry>;
@@ -644,6 +652,15 @@ app.whenReady().then(async () => {
   ipcMain.handle("deps:set-custom-path", (_event, tool: DependencyTool, filePath: string | undefined) =>
     depsManager!.setCustomPath(tool, filePath)
   );
+  ipcMain.handle("update:check", (_event, force: boolean) => updateChecker!.check(force === true));
+  ipcMain.handle("update:state", () => updateChecker!.getState());
+  ipcMain.handle("update:ignore", (_event, version: string) => updateChecker!.ignoreVersion(version));
+  ipcMain.handle("update:open-release", async (_event, url: string) => {
+    // 只放行 GitHub 链接，防止渲染进程传入任意 URL。
+    if (typeof url === "string" && /^https:\/\/github\.com\//.test(url)) {
+      await shell.openExternal(url);
+    }
+  });
   ipcMain.handle("folder:choose", async () => {
     const result = await dialog.showOpenDialog({ properties: ["openDirectory"] });
     return result.canceled ? undefined : result.filePaths[0];
@@ -667,6 +684,10 @@ app.whenReady().then(async () => {
   });
   ipcMain.handle("video:context-action", async (_event, action: ContextAction, filePath: string) => handleContextAction(action, filePath));
   await createWindow();
+  // 启动后延迟静默检查更新（受设置开关控制，失败不打扰）。
+  setTimeout(() => {
+    void updateChecker?.check(false).catch(() => {});
+  }, 3000);
 });
 
 app.on("window-all-closed", () => {

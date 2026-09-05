@@ -1,0 +1,25 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" width="256" height="256">
+  <!-- Vid Folder Browser 应用图标
+       设计说明（2026-09-05 · GLM-5.3-Flash / ZCode）：
+       - 深色圆角方块底（呼应应用暗色界面 #101216），圆角 22% 贴合 Windows 图标规范；
+       - 蓝色渐变文件夹（青→蓝）承载"文件夹浏览器"身份，白色播放三角表达"视频"；
+       - 16px 下仍可辨识：方块 + 蓝文件夹 + 白三角三层结构。 -->
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#26304a"/>
+      <stop offset="1" stop-color="#10131b"/>
+    </linearGradient>
+    <linearGradient id="back" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#3fa9f5"/>
+      <stop offset="1" stop-color="#2a6fe8"/>
+    </linearGradient>
+    <linearGradient id="front" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#59c7ff"/>
+      <stop offset="1" stop-color="#1f6dff"/>
+    </linearGradient>
+  </defs>
+  <rect width="256" height="256" rx="56" fill="url(#bg)"/>
+  <path d="M52 94 c0-11 9-20 20-20 h32 c5.6 0 10.9 2.3 14.7 6.4 L130 92 h54 c11 0 20 9 20 20 v10 H52 Z" fill="url(#back)"/>
+  <rect x="52" y="102" width="152" height="88" rx="14" fill="url(#front)"/>
+  <path d="M118 123 l40 21 -40 21 Z" fill="#ffffff"/>
+</svg>

@@ -35,9 +35,23 @@
           "arch": [
             "x64"
           ]
+        },
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
         }
       ],
+      "icon": "assets/icon.ico",
       "artifactName": "Vid.Folder.Browser-${version}-win-${arch}.${ext}"
+    },
+    "nsis": {
+      "oneClick": false,
+      "perMachine": false,
+      "allowToChangeInstallationDirectory": true,
+      "allowElevation": true,
+      "artifactName": "Vid.Folder.Browser-Setup-${version}-win-${arch}.${ext}"
     }
   },
   "dependencies": {
@@ -60,11 +74,13 @@
     "wait-on": "^8.0.3"
   },
   "devDependencies": {
+    "@resvg/resvg-js": "^2.6.2",
     "@types/node": "^22.15.31",
     "@types/react": "^19.1.7",
     "@types/react-dom": "^19.1.6",
     "electron": "^36.4.0",
     "electron-builder": "^26.15.2",
+    "png-to-ico": "^3.0.2",
     "typescript": "^5.8.3",
     "vitest": "^4.1.10"
   }

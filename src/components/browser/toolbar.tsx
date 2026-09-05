@@ -1,4 +1,4 @@
-import { ArrowDown, ArrowUp, FolderOpen, LayoutGrid, List, PanelRight, RefreshCw, Search, SlidersHorizontal, X } from "lucide-react";
+import { ArrowDown, ArrowUp, CircleArrowUp, FolderOpen, LayoutGrid, List, PanelRight, RefreshCw, Search, SlidersHorizontal, X } from "lucide-react";
 import type { DurationFilter, ResolutionFilter, SortKey, ThumbSize, ViewMode } from "@/lib/filter";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -62,6 +62,7 @@ type ToolbarProps = {
   onToggleDetail: () => void;
   showCodecColumn: boolean;
   onToggleCodecColumn: () => void;
+  onOpenUpdateDialog: () => void;
 };
 
 export function Toolbar({
@@ -91,7 +92,8 @@ export function Toolbar({
   detailOpen,
   onToggleDetail,
   showCodecColumn,
-  onToggleCodecColumn
+  onToggleCodecColumn,
+  onOpenUpdateDialog
 }: ToolbarProps) {
   const thumbSizes: Array<{ value: ThumbSize; label: string }> = [
     { value: "small", label: "小" },
@@ -295,6 +297,15 @@ export function Toolbar({
       </Popover>
 
       <Separator orientation="vertical" className="h-6" />
+
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <Button variant="outline" size="icon" onClick={onOpenUpdateDialog} aria-label="检查更新" title="检查更新">
+            <CircleArrowUp />
+          </Button>
+        </TooltipTrigger>
+        <TooltipContent>检查更新</TooltipContent>
+      </Tooltip>
 
       <Button
         variant={detailOpen ? "secondary" : "outline"}

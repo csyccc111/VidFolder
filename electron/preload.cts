@@ -7,6 +7,7 @@ import type {
   ElectronApi,
   FolderValidationResult,
   ScanProgress,
+  UpdateCheckOutcome,
   VideoItem
 } from "../src/shared";
 import type { DependencyTool } from "../src/lib/deps-core";
@@ -25,6 +26,10 @@ const api: ElectronApi = {
   enableVendorDependencies: () => ipcRenderer.invoke("deps:enable-vendor"),
   setCustomDependencyPath: (tool: DependencyTool, filePath: string | undefined) =>
     ipcRenderer.invoke("deps:set-custom-path", tool, filePath),
+  checkForUpdates: (force: boolean) => ipcRenderer.invoke("update:check", force) as Promise<UpdateCheckOutcome>,
+  getUpdateState: () => ipcRenderer.invoke("update:state") as Promise<UpdateCheckOutcome>,
+  ignoreUpdate: (version: string) => ipcRenderer.invoke("update:ignore", version) as Promise<UpdateCheckOutcome>,
+  openReleasePage: (url: string) => ipcRenderer.invoke("update:open-release", url),
   chooseFolder: () => ipcRenderer.invoke("folder:choose"),
   validateFolder: (folderPath: string) => ipcRenderer.invoke("folder:validate", folderPath) as Promise<FolderValidationResult>,
   showFolderInExplorer: (folderPath: string) => ipcRenderer.invoke("folder:show-in-explorer", folderPath),
@@ -41,6 +46,11 @@ const api: ElectronApi = {
     const listener = (_event: IpcRendererEvent, state: DependencyDownloadState) => callback(state);
     ipcRenderer.on("deps:download-progress", listener);
     return () => ipcRenderer.off("deps:download-progress", listener);
+  },
+  onUpdateStatus: (callback: (outcome: UpdateCheckOutcome) => void) => {
+    const listener = (_event: IpcRendererEvent, outcome: UpdateCheckOutcome) => callback(outcome);
+    ipcRenderer.on("update:status", listener);
+    return () => ipcRenderer.off("update:status", listener);
   },
   onProgress: (callback: (progress: ScanProgress) => void) => {
     const listener = (_event: IpcRendererEvent, progress: ScanProgress) => callback(progress);

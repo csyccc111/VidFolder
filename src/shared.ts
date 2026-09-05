@@ -116,6 +116,10 @@ export type AppSettings = {
   customFfprobePath?: string;
   /** 上次探测结果持久化（v0.9 新增，启动时先验证再用，失效重探）。 */
   resolvedDependencies?: ResolvedDependencyRecord;
+  /** 启动时自动检查更新（v0.10 新增，默认开）。 */
+  checkUpdatesEnabled?: boolean;
+  /** 用户选择忽略的更新版本号列表（v0.10 新增，如 ["0.11.0"]）。 */
+  ignoredUpdateVersions?: string[];
 };
 
 /** 上次探测的依赖解析结果（v0.9）。 */
@@ -183,11 +187,41 @@ export type FolderValidationResult = {
   isDirectory: boolean;
 };
 
+/** 更新检查状态（v0.10）。 */
+export type UpdateCheckState = "idle" | "checking" | "latest" | "available" | "ignored" | "disabled" | "error";
+
+/** 可用的新版本信息（v0.10）。 */
+export type UpdateInfo = {
+  currentVersion: string;
+  /** 新版本号（去 v 前缀，如 "0.11.0"）。 */
+  latestVersion: string;
+  /** 原始 tag（如 "v0.11.0"）。 */
+  latestTag: string;
+  /** Release 页面地址。 */
+  releaseUrl: string;
+  releaseName?: string;
+  /** Release body 摘要（前几行）。 */
+  releaseNotesExcerpt?: string;
+  publishedAt?: string;
+};
+
+/** 一次更新检查的结果（v0.10）。 */
+export type UpdateCheckOutcome = {
+  state: UpdateCheckState;
+  /** 检查完成时间（ms）；idle 时为 0。 */
+  checkedAt: number;
+  /** available / ignored 时有值。 */
+  update?: UpdateInfo;
+  /** state=error 时的技术信息（静默展示，不打扰）。 */
+  error?: string;
+};
+
 export type IpcEvents = {
   "scan:progress": ScanProgress;
   "scan:item": VideoItem;
   "deps:status-changed": DependencyStatus;
   "deps:download-progress": DependencyDownloadState;
+  "update:status": UpdateCheckOutcome;
 };
 
 export type ElectronApi = {
@@ -208,8 +242,13 @@ export type ElectronApi = {
   restoreSystemDependencies: () => Promise<DependencyStatus>;
   enableVendorDependencies: () => Promise<DependencyStatus>;
   setCustomDependencyPath: (tool: DependencyTool, filePath: string | undefined) => Promise<DependencyStatus>;
+  checkForUpdates: (force: boolean) => Promise<UpdateCheckOutcome>;
+  getUpdateState: () => Promise<UpdateCheckOutcome>;
+  ignoreUpdate: (version: string) => Promise<UpdateCheckOutcome>;
+  openReleasePage: (url: string) => Promise<void>;
   onDependenciesChanged: (callback: (status: DependencyStatus) => void) => () => void;
   onDependencyDownloadStateChanged: (callback: (state: DependencyDownloadState) => void) => () => void;
+  onUpdateStatus: (callback: (outcome: UpdateCheckOutcome) => void) => () => void;
   onProgress: (callback: (progress: ScanProgress) => void) => () => void;
   onItem: (callback: (item: VideoItem) => void) => () => void;
 };

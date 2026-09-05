@@ -7,6 +7,7 @@ import type {
   FolderTreeNode,
   ItemError,
   ScanProgress,
+  UpdateCheckOutcome,
   VideoItem
 } from "@/shared";
 import type { DependencyTool } from "@/lib/deps-core";
@@ -37,6 +38,7 @@ import { EmptyState, EmptyStateKind } from "@/components/browser/empty-state";
 import { DetailPanel } from "@/components/details/detail-panel";
 import { StatusBar } from "@/components/status/status-bar";
 import { DepsDialog } from "@/components/status/deps-dialog";
+import { UpdateDialog } from "@/components/status/update-dialog";
 import { ScanNotices } from "@/components/status/scan-notices";
 import { Sidebar, SIDEBAR_DEFAULT_WIDTH, SIDEBAR_MAX_WIDTH, SIDEBAR_MIN_WIDTH } from "@/components/layout/sidebar";
 
@@ -59,6 +61,8 @@ const idleDownloadState: DependencyDownloadState = {
   bytesPerSecond: 0
 };
 
+const idleUpdateState: UpdateCheckOutcome = { state: "idle", checkedAt: 0 };
+
 export default function App() {
   const [folderPath, setFolderPath] = useState("");
   const [items, setItems] = useState<VideoItem[]>([]);
@@ -78,6 +82,10 @@ export default function App() {
   const [dependencyStatus, setDependencyStatus] = useState<DependencyStatus>();
   const [depsDialogOpen, setDepsDialogOpen] = useState(false);
   const [downloadState, setDownloadState] = useState<DependencyDownloadState>(idleDownloadState);
+  const [updateOutcome, setUpdateOutcome] = useState<UpdateCheckOutcome>(idleUpdateState);
+  const [updateDialogOpen, setUpdateDialogOpen] = useState(false);
+  const [updateChecking, setUpdateChecking] = useState(false);
+  const [autoCheckEnabled, setAutoCheckEnabled] = useState(true);
   const [recentFolders, setRecentFolders] = useState<FolderHistoryEntry[]>([]);
   const [invalidPaths, setInvalidPaths] = useState<Set<string>>(new Set());
   const [expandedByRoot, setExpandedByRoot] = useState<Record<string, string[]>>({});
@@ -135,6 +143,11 @@ export default function App() {
     const disposeDownload = window.videoBrowser.onDependencyDownloadStateChanged((state) => {
       setDownloadState(state);
     });
+    const disposeUpdate = window.videoBrowser.onUpdateStatus((outcome) => {
+      setUpdateOutcome(outcome);
+      // 启动静默检查发现新版本时自动弹出提示（已忽略版本不会到达 available）。
+      if (outcome.state === "available") setUpdateDialogOpen(true);
+    });
     if (!initialized.current) {
       initialized.current = true;
       window.videoBrowser.getSettings().then((settings) => {
@@ -148,6 +161,8 @@ export default function App() {
         }
         if (typeof settings.detailPaneOpen === "boolean") setDetailPaneOpen(settings.detailPaneOpen);
         if (typeof settings.showCodecColumn === "boolean") setShowCodecColumn(settings.showCodecColumn);
+        setAutoCheckEnabled(settings.checkUpdatesEnabled !== false);
+        void window.videoBrowser.getUpdateState().then(setUpdateOutcome);
         setRecentFolders(settings.recentFolders ?? []);
         setExpandedByRoot(sanitizeExpandedFoldersByRoot(settings.expandedFoldersByRoot));
         settingsLoaded.current = true;
@@ -163,6 +178,7 @@ export default function App() {
       disposeItem();
       disposeStatus();
       disposeDownload();
+      disposeUpdate();
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -547,6 +563,40 @@ export default function App() {
     void runDependencyAction(() => window.videoBrowser!.setCustomDependencyPath(tool, filePath));
   }
 
+  // ---- v0.10 更新检查 ----
+
+  async function handleCheckForUpdates() {
+    if (!window.videoBrowser) {
+      setBridgeReady(false);
+      return;
+    }
+    setUpdateChecking(true);
+    try {
+      setUpdateOutcome(await window.videoBrowser.checkForUpdates(true));
+    } finally {
+      setUpdateChecking(false);
+    }
+  }
+
+  function handleOpenUpdateDialog() {
+    setUpdateDialogOpen(true);
+    void handleCheckForUpdates();
+  }
+
+  async function handleIgnoreUpdate(version: string) {
+    if (!window.videoBrowser) return;
+    setUpdateOutcome(await window.videoBrowser.ignoreUpdate(version));
+  }
+
+  function handleOpenReleasePage(url: string) {
+    void window.videoBrowser?.openReleasePage(url);
+  }
+
+  function handleToggleAutoCheck(enabled: boolean) {
+    setAutoCheckEnabled(enabled);
+    void window.videoBrowser?.updateSettings({ checkUpdatesEnabled: enabled });
+  }
+
   function emptyStateKind(): EmptyStateKind {
     if (!bridgeReady) return "no-bridge";
     if (!folderPath) return "no-folder";
@@ -595,6 +645,7 @@ export default function App() {
         onToggleDetail={handleToggleDetail}
         showCodecColumn={showCodecColumn}
         onToggleCodecColumn={() => setShowCodecColumn((value) => !value)}
+        onOpenUpdateDialog={handleOpenUpdateDialog}
       />
 
       <ScanNotices dependencyStatus={dependencyStatus} progress={progress} onOpenDependencies={() => setDepsDialogOpen(true)} />
@@ -704,6 +755,18 @@ export default function App() {
         onRestoreSystem={handleRestoreSystemDependencies}
         onEnableVendor={handleEnableVendorDependencies}
         onSetCustomPath={handleSetCustomDependencyPath}
+      />
+
+      <UpdateDialog
+        open={updateDialogOpen}
+        onOpenChange={setUpdateDialogOpen}
+        outcome={updateOutcome}
+        checking={updateChecking}
+        autoCheckEnabled={autoCheckEnabled}
+        onCheck={() => void handleCheckForUpdates()}
+        onIgnore={(version) => void handleIgnoreUpdate(version)}
+        onOpenRelease={handleOpenReleasePage}
+        onToggleAutoCheck={handleToggleAutoCheck}
       />
 
       {dragState && (
