@@ -134,7 +134,8 @@ jobs:
           VERIFY() {
             NAME=$(basename "$1")
             LOCAL_SIZE=$(stat -c%s "$1")
-            REMOTE_JSON=$(gh api "repos/$GITHUB_REPOSITORY/releases/tags/$TAG" --jq ".assets[] | select(.name==\"$NAME\") | {size, name}")
+            # releases/tags 端点对 draft 返回 404，改用 releases 列表按 tag_name 过滤（含 draft）。
+            REMOTE_JSON=$(gh api "repos/$GITHUB_REPOSITORY/releases" --jq ".[] | select(.tag_name==\"$TAG\") | .assets[] | select(.name==\"$NAME\") | {size, name}")
             REMOTE_SIZE=$(echo "$REMOTE_JSON" | grep -o '"size":[0-9]*' | cut -d: -f2)
             if [ "$LOCAL_SIZE" != "$REMOTE_SIZE" ]; then
               echo "::error::资产大小不一致：$NAME 本地 $LOCAL_SIZE 远端 $REMOTE_SIZE"
@@ -145,3 +146,11 @@ jobs:
           VERIFY "$ZIP"
           VERIFY "$EXE"
           echo "发布核验通过：$TAG" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Publish release
+        if: ${{ github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && !inputs.dry_run) }}
+        run: |
+          TAG="${{ steps.version.outputs.tag }}"
+          # gh release create/edit/upload 可能留下 draft；核验通过后显式转正式。
+          gh release edit "$TAG" --repo "$GITHUB_REPOSITORY" --draft=false
+          echo "已发布：$TAG" >> "$GITHUB_STEP_SUMMARY"
